@@ -39,6 +39,14 @@ const audit = (t: Tx, actorId: number, action: string, entity: string, entityId:
 const releaseSeats = (t: Tx, slotId: number, seats: number) =>
   t.update(slots).set({ bookedSeats: sql`${slots.bookedSeats} - ${seats}` }).where(eq(slots.id, slotId));
 
+/** On cancellation, unpaid payments are voided and a verified one becomes a pending refund (negative amount). */
+async function settleCancelled(t: Tx, bookingId: number) {
+  for (const p of await t.select().from(payments).where(eq(payments.bookingId, bookingId))) {
+    if (p.status === 'pending') await t.update(payments).set({ status: 'rejected' }).where(eq(payments.id, p.id));
+    if (p.status === 'verified' && p.amount > 0) await t.insert(payments).values({ bookingId, method: p.method, amount: -p.amount, status: 'pending' });
+  }
+}
+
 // ── Admin: scheduling ────────────────────────────────────────────────────────
 
 type SlotInput = { activityId: number; zoneId: number; startsAt: Date; endsAt: Date; price: number; capacity: number; hostName?: string };
@@ -140,12 +148,41 @@ export function cancelBooking(userId: number, ref: string, now = new Date()) {
     if (slot.startsAt.getTime() - now.getTime() < CANCEL_CUTOFF_MS) throw new AppError('CANCEL_WINDOW_CLOSED', 409);
     await t.update(bookings).set({ status: 'cancelled', holdUntil: null }).where(eq(bookings.id, b.id));
     await releaseSeats(t, b.slotId, b.seats);
-    // Unpaid payments are voided; a verified one becomes a pending refund (negative amount) in the ledger.
-    const paid = await t.select().from(payments).where(eq(payments.bookingId, b.id));
-    for (const p of paid) {
-      if (p.status === 'pending') await t.update(payments).set({ status: 'rejected' }).where(eq(payments.id, p.id));
-      if (p.status === 'verified' && p.amount > 0) await t.insert(payments).values({ bookingId: b.id, method: p.method, amount: -p.amount, status: 'pending' });
+    await settleCancelled(t, b.id);
+  });
+}
+
+/** Desk scans the booking QR. Opens 15 minutes before the slot, works once. Pay-at-venue is marked paid here. */
+export function checkIn(staffId: number, ref: string, now = new Date()) {
+  return tx(async (t) => {
+    const [b] = await t.select().from(bookings).where(eq(bookings.ref, ref)).for('update');
+    if (!b) throw new AppError('BOOKING_NOT_FOUND', 404);
+    if (b.status === 'checked_in') throw new AppError('ALREADY_CHECKED_IN', 409);
+    if (b.status !== 'confirmed') throw new AppError('BOOKING_NOT_CONFIRMED', 409);
+    const [slot] = await t.select().from(slots).where(eq(slots.id, b.slotId));
+    if (now.getTime() < slot.startsAt.getTime() - 15 * MIN || now >= slot.endsAt) throw new AppError('OUTSIDE_CHECKIN_WINDOW', 409);
+    await t.update(bookings).set({ status: 'checked_in' }).where(eq(bookings.id, b.id));
+    await t.update(payments).set({ status: 'verified', verifiedBy: staffId, verifiedAt: now })
+      .where(and(eq(payments.bookingId, b.id), eq(payments.method, 'venue'), eq(payments.status, 'pending')));
+    await audit(t, staffId, 'booking.checkin', 'booking', b.id);
+    return { ...b, status: 'checked_in' as const, slot };
+  });
+}
+
+/** Admin cancels a whole slot (e.g. instructor sick): every booking is cancelled and paid ones get refund entries. */
+export function cancelSlot(adminId: number, slotId: number) {
+  return tx(async (t) => {
+    const [slot] = await t.select().from(slots).where(eq(slots.id, slotId)).for('update');
+    if (!slot || slot.cancelled) throw new AppError('SLOT_NOT_FOUND', 404);
+    const active = await t.select().from(bookings).where(and(eq(bookings.slotId, slotId),
+      sql`${bookings.status} IN ('pending','confirmed')`)).for('update');
+    for (const b of active) {
+      await t.update(bookings).set({ status: 'cancelled', holdUntil: null }).where(eq(bookings.id, b.id));
+      await settleCancelled(t, b.id);
     }
+    await t.update(slots).set({ cancelled: true, bookedSeats: 0 }).where(eq(slots.id, slotId));
+    await audit(t, adminId, 'slot.cancel', 'slot', slotId, { bookingsCancelled: active.length });
+    return active.length;
   });
 }
 

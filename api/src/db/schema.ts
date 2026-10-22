@@ -20,6 +20,13 @@ export const users = mysqlTable('users', {
   createdAt: createdAt(),
 });
 
+// Login sessions. Only a SHA-256 hash of the token is stored, so a database leak can't be used to log in.
+export const sessions = mysqlTable('sessions', {
+  tokenHash: varchar('token_hash', { length: 64 }).primaryKey(),
+  userId: int('user_id').notNull().references(() => users.id),
+  expiresAt: datetime('expires_at').notNull(),
+}, (t) => [index('sessions_user').on(t.userId)]);
+
 // Physical areas of the venue (Zone A Play, Zone B Move…). Only one slot per zone at a time.
 export const zones = mysqlTable('zones', {
   id: id(),
