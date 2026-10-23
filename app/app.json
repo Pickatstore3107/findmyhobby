@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "FindMyHobby",
+    "slug": "findmyhobby",
+    "scheme": "findmyhobby",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#F3F2F2",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "club.findmyhobby.app"
+    },
+    "android": {
+      "package": "club.findmyhobby.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#EC3013",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": { "favicon": "./assets/favicon.png" },
+    "plugins": [
+      "expo-router",
+      "expo-status-bar",
+      "expo-secure-store",
+      "expo-font",
+      "expo-image"
+    ],
+    "experiments": { "typedRoutes": true }
+  }
+}

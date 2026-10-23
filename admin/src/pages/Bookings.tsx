@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { downloadCsv, useApi } from '../api.ts';
-import { fmtDay, fmtTime, fromIst, istDate, rupees } from '../time.ts';
+import { fmtDay, fmtTime, fromIst, istDate, rupees } from '@fmh/shared/time';
 import type { Booking } from '../types.ts';
 
 const STATUS: Record<Booking['status'], string> = {

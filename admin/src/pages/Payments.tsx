@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api, message, useApi } from '../api.ts';
-import { fmtDay, fmtTime, rupees } from '../time.ts';
+import { fmtDay, fmtTime, rupees } from '@fmh/shared/time';
 import type { Payment } from '../types.ts';
 
 const TABS = [['pending', 'To do'], ['verified', 'Done'], ['rejected', 'Rejected']] as const;

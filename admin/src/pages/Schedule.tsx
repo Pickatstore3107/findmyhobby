@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api, message, useApi } from '../api.ts';
 import { can, type Me } from '../roles.ts';
-import { fmtDay, fmtRange, fmtTime, fromIst, istDate, istDay, rupees } from '../time.ts';
+import { fmtDay, fmtRange, fmtTime, fromIst, istDate, istDay, rupees } from '@fmh/shared/time';
 import type { AdminSlot, Catalog } from '../types.ts';
 
 const DURATIONS = [0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6];

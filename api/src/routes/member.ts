@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
-import { and, asc, desc, eq, gt, inArray, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, gt, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/index.ts';
-import { activities, bookings, categories, sessions, slots, tournaments, users, zones } from '../db/schema.ts';
+import { activities, bookings, categories, sessions, slots, tournamentPlayers, tournaments, users, zones } from '../db/schema.ts';
 import { AppError, bookSlot, cancelBooking, submitUtr, windowEnd } from '../booking.ts';
 import { bearer, login, logout, requireUser } from '../auth.ts';
 import { parse } from '../validate.ts';
@@ -33,7 +33,11 @@ export const memberRoutes = (deps: Deps) => async (app: FastifyInstance) => {
   app.get('/catalog', async () => ({
     categories: await db.select().from(categories).orderBy(asc(categories.sort)),
     activities: await db.select().from(activities).where(eq(activities.active, true)),
-    tournaments: await db.select().from(tournaments).where(inArray(tournaments.status, ['open', 'closed', 'live'])).orderBy(asc(tournaments.startsAt)),
+    tournaments: await db.select({ ...getTableColumns(tournaments), players: sql<number>`(SELECT COUNT(*) FROM tournament_players tp WHERE tp.tournament_id = tournaments.id)` })
+      .from(tournaments).where(inArray(tournaments.status, ['open', 'closed', 'live'])).orderBy(asc(tournaments.startsAt)),
+    // Where members pay by UPI. Set UPI_ID / UPI_NAME on the server; the app opens any UPI app with these filled in.
+    payment: { upiId: process.env.UPI_ID ?? '', payeeName: process.env.UPI_NAME ?? 'FindMyHobby Club' },
+    imageBase: process.env.IMAGE_BASE_URL ?? '',
   }));
 
   /** Slots from now until the end of the 4-day window, optionally for one activity. */
@@ -90,7 +94,7 @@ export const memberRoutes = (deps: Deps) => async (app: FastifyInstance) => {
     const user = await requireUser(req);
     return db.select({
       ref: bookings.ref, status: bookings.status, seats: bookings.seats, amount: bookings.amount, holdUntil: bookings.holdUntil,
-      activity: activities.name, zone: zones.name, startsAt: slots.startsAt, endsAt: slots.endsAt,
+      activityId: activities.id, activity: activities.name, zone: zones.name, startsAt: slots.startsAt, endsAt: slots.endsAt, hostName: slots.hostName,
     }).from(bookings)
       .innerJoin(slots, eq(slots.id, bookings.slotId))
       .innerJoin(activities, eq(activities.id, slots.activityId))
@@ -125,7 +129,15 @@ export const memberRoutes = (deps: Deps) => async (app: FastifyInstance) => {
   });
 
   /** Public bracket: anyone can watch the draw and live results. */
-  app.get('/tournaments/:id', async (req) => getBracket(parse(tourId, req.params).id));
+  app.get('/tournaments/:id', async (req) => {
+    const { id } = parse(tourId, req.params);
+    const bracket = await getBracket(id);
+    // Signed-in viewers also learn whether they are registered; everyone else just sees the bracket.
+    const user = bearer(req) ? await requireUser(req).catch(() => null) : null;
+    const joined = !!user && (await db.select({ id: tournamentPlayers.id }).from(tournamentPlayers)
+      .where(and(eq(tournamentPlayers.tournamentId, id), eq(tournamentPlayers.userId, user.id)))).length > 0;
+    return { ...bracket, joined };
+  });
 
   app.post('/tournaments/:id/register', async (req) => {
     const user = await requireUser(req);

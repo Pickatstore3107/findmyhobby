@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api, message, useApi } from '../api.ts';
 import { can, type Me } from '../roles.ts';
-import { fmtDay, fmtTime, fromIst, istDate, rupees } from '../time.ts';
+import { fmtDay, fmtTime, fromIst, istDate, rupees } from '@fmh/shared/time';
 import type { Bracket, Catalog, Match, Tournament } from '../types.ts';
 
 const STATUS: Record<Tournament['status'], string> = { draft: 'Draft (hidden)', open: 'Registration open', closed: 'Registration closed', live: 'Live', finished: 'Finished' };

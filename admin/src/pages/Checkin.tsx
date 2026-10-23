@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, message, useApi } from '../api.ts';
-import { fmtTime, istDay } from '../time.ts';
+import { fmtTime, istDay } from '@fmh/shared/time';
 import type { Booking } from '../types.ts';
 
 type Result = { ok: boolean; text: string };

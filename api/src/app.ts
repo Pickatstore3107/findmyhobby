@@ -16,7 +16,7 @@ export function buildApp(deps: Deps = { verifyGoogle }) {
     trustProxy: process.env.TRUST_PROXY === '1', // only behind our own load balancer, so client IPs can't be spoofed
   });
   app.register(helmet);
-  app.register(cors, { origin: (process.env.ADMIN_ORIGIN ?? '').split(',').filter(Boolean) });
+  app.register(cors, { origin: (process.env.ADMIN_ORIGIN ?? '').split(',').filter(Boolean), methods: ['GET', 'POST', 'PATCH', 'DELETE'] });
   app.register(rateLimit, { max: 120, timeWindow: '1 minute' });
 
   app.setErrorHandler((err: any, req, reply) => {

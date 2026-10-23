@@ -2,3 +2,4 @@ packages:
   - api
   - admin
   - app
+  - shared

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api, message, useApi } from '../api.ts';
-import { rupees } from '../time.ts';
+import { rupees } from '@fmh/shared/time';
 import type { Activity, Catalog as CatalogData } from '../types.ts';
 
 /** Uploads a photo straight to S3 with a signed form from our API, then returns the S3 key. */

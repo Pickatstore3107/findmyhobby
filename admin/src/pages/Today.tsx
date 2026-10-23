@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api, message, useApi } from '../api.ts';
 import { can, type Me } from '../roles.ts';
-import { fmtDay, fmtRange, fmtTime, istDay, istHours, rupees } from '../time.ts';
+import { fmtDay, fmtRange, fmtTime, istDay, istHours, rupees } from '@fmh/shared/time';
 import type { AdminSlot, Booking, Catalog, Payment, Revenue } from '../types.ts';
 
 const FIRST_HOUR = 7, HOURS = 15; // timeline shows 7 AM – 10 PM

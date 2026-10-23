@@ -1,0 +1,6 @@
+{
+  "name": "@fmh/shared",
+  "private": true,
+  "type": "module",
+  "exports": { "./time": "./time.ts" }
+}
