@@ -1,1 +1,9 @@
-{ "name": "findmyhobby", "private": true, "packageManager": "pnpm@10.26.2" }
+{
+  "name": "findmyhobby",
+  "private": true,
+  "packageManager": "pnpm@10.26.2",
+  "scripts": {
+    "dev": "docker compose up -d && pnpm --filter @fmh/api --filter @fmh/admin --parallel dev",
+    "test": "pnpm --filter @fmh/api test"
+  }
+}

@@ -14,6 +14,11 @@ export function Schedule({ me }: { me: Me }) {
   const catalog = useApi<Catalog>('/admin/catalog');
   const [f, setF] = useState(blank);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+  // What is already booked in the chosen zone on the chosen day, so the admin can pick a free time.
+  const dayStart = fromIst(f.date, '00:00');
+  const daySlots = useApi<AdminSlot[]>(f.date ? `/admin/slots?from=${dayStart.toISOString()}&to=${new Date(+dayStart + 864e5).toISOString()}` : null);
+  const busy = (daySlots.data ?? []).filter((s) => !s.slot.cancelled && String(s.slot.zoneId) === f.zoneId);
+  const zoneName = catalog.data?.zones.find((z) => String(z.id) === f.zoneId)?.name ?? 'This zone';
   const set = (k: keyof typeof blank) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
 
   // Picking an activity fills in its usual price and seats; both can still be changed for this slot.
@@ -26,13 +31,16 @@ export function Schedule({ me }: { me: Me }) {
     e.preventDefault();
     const startsAt = fromIst(f.date, f.time);
     try {
-      const res = await api<{ created: number[]; clashes: string[] }>('/admin/slots', {
+      type Clash = { startsAt: string; with: { activity: string; startsAt: string; endsAt: string } };
+      const res = await api<{ created: number[]; clashes: Clash[] }>('/admin/slots', {
         activityId: Number(f.activityId), zoneId: Number(f.zoneId), startsAt, endsAt: new Date(+startsAt + Number(f.hours) * 3600e3),
         price: Math.round(Number(f.price) * 100), capacity: Number(f.capacity), hostName: f.hostName.trim() || undefined, repeatWeeks: Number(f.repeatWeeks),
       });
-      const skipped = res.clashes.length ? ` Skipped ${res.clashes.length} (zone busy): ${res.clashes.map(fmtDay).join(' · ')}.` : '';
-      setNote({ ok: res.created.length > 0, text: `Created ${res.created.length} slot${res.created.length === 1 ? '' : 's'}.${skipped}` });
-      slots.reload();
+      const skipped = res.clashes.map((c) =>
+        ` Not created on ${fmtDay(c.startsAt)}: ${zoneName} already has ${c.with.activity} ${fmtRange(c.with.startsAt, c.with.endsAt)}.`).join('');
+      const made = res.created.length ? `Created ${res.created.length} slot${res.created.length === 1 ? '' : 's'}.` : 'No slot created.';
+      setNote({ ok: res.created.length > 0, text: made + skipped });
+      slots.reload(); daySlots.reload();
     } catch (err) { setNote({ ok: false, text: message(err) }); }
   };
 
@@ -76,6 +84,10 @@ export function Schedule({ me }: { me: Me }) {
               <option value="0">Just once</option>{[1, 2, 3, 4, 8, 12].map((w) => <option key={w} value={w}>+ next {w} week{w > 1 ? 's' : ''}</option>)}</select></label>
             <button className="btn primary">Create slot</button>
           </form>
+          {f.zoneId && <p className="note">
+            <b>{zoneName} on {fmtDay(dayStart)}:</b>{' '}
+            {busy.length ? busy.map((s) => `${s.activity} ${fmtRange(s.slot.startsAt, s.slot.endsAt)}`).join(' · ') : 'nothing booked yet. The whole day is free.'}
+          </p>}
           {note && <p className={`note ${note.ok ? 'ok' : 'error'}`}>{note.text}</p>}
         </section>
       )}

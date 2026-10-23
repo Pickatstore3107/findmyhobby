@@ -3,10 +3,10 @@
 import { randomInt } from 'node:crypto';
 import { and, eq, gt, lt, lte, sql } from 'drizzle-orm';
 import { db, type Tx } from './db/index.ts';
-import { auditLog, bookings, payments, slots, zones } from './db/schema.ts';
+import { activities, auditLog, bookings, payments, slots, zones } from './db/schema.ts';
 
 export class AppError extends Error {
-  constructor(public code: string, public status = 400) { super(code); }
+  constructor(public code: string, public status = 400, public detail?: unknown) { super(code); }
 }
 
 const MIN = 60_000, HOUR = 60 * MIN, DAY = 24 * HOUR, IST = 5.5 * HOUR;
@@ -57,10 +57,11 @@ export function createSlot(adminId: number, input: SlotInput) {
     // Locking the zone row makes scheduling in the same zone one-at-a-time, so two admins can't create clashing slots.
     const [zone] = await t.select({ id: zones.id }).from(zones).where(eq(zones.id, input.zoneId)).for('update');
     if (!zone) throw new AppError('ZONE_NOT_FOUND', 404);
-    const [clash] = await t.select({ id: slots.id }).from(slots).where(and(
+    const [clash] = await t.select({ activity: activities.name, startsAt: slots.startsAt, endsAt: slots.endsAt })
+      .from(slots).innerJoin(activities, eq(activities.id, slots.activityId)).where(and(
       eq(slots.zoneId, input.zoneId), eq(slots.cancelled, false),
       lt(slots.startsAt, input.endsAt), gt(slots.endsAt, input.startsAt)));
-    if (clash) throw new AppError('ZONE_CLASH', 409);
+    if (clash) throw new AppError('ZONE_CLASH', 409, clash); // tells the admin what is already there
     const [res] = await t.insert(slots).values(input);
     await audit(t, adminId, 'slot.create', 'slot', res.insertId, input);
     return res.insertId;

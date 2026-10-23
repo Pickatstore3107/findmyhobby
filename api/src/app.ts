@@ -20,7 +20,7 @@ export function buildApp(deps: Deps = { verifyGoogle }) {
   app.register(rateLimit, { max: 120, timeWindow: '1 minute' });
 
   app.setErrorHandler((err: any, req, reply) => {
-    if (err instanceof AppError) return reply.status(err.status).send({ error: err.code });
+    if (err instanceof AppError) return reply.status(err.status).send({ error: err.code, detail: err.detail });
     if (err.statusCode && err.statusCode < 500) return reply.status(err.statusCode).send({ error: err.code ?? 'BAD_REQUEST' });
     req.log.error(err); // full details stay in our logs, never sent to the client
     return reply.status(500).send({ error: 'INTERNAL' });

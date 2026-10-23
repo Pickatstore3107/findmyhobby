@@ -66,11 +66,11 @@ export async function adminRoutes(app: FastifyInstance) {
     }), req.body);
     if (input.startsAt <= new Date()) throw new AppError('SLOT_IN_PAST');
     if (+input.endsAt - +input.startsAt > 12 * 3600e3) throw new AppError('SLOT_TOO_LONG');
-    const created: number[] = [], clashes: Date[] = [];
+    const created: number[] = [], clashes: { startsAt: Date; with: unknown }[] = [];
     for (let w = 0; w <= repeatWeeks; w++) {
       const startsAt = new Date(+input.startsAt + w * WEEK), endsAt = new Date(+input.endsAt + w * WEEK);
       try { created.push(await createSlot(admin.id, { ...input, startsAt, endsAt })); }
-      catch (e) { if ((e as AppError).code === 'ZONE_CLASH') clashes.push(startsAt); else throw e; }
+      catch (e) { if ((e as AppError).code === 'ZONE_CLASH') clashes.push({ startsAt, with: (e as AppError).detail }); else throw e; }
     }
     return { created, clashes };
   });

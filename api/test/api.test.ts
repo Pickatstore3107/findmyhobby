@@ -67,7 +67,7 @@ describe('full flow', () => {
     slotId = res.body.created[0];
     const again = await call('POST', '/admin/slots', { token: owner, body: {
       activityId: act, zoneId: zone, startsAt: inMinutes(30), endsAt: inMinutes(90), price: 19900, capacity: 20, repeatWeeks: 1 } });
-    expect(again.body).toMatchObject({ created: [], clashes: [expect.any(String), expect.any(String)] });
+    expect(again.body).toMatchObject({ created: [], clashes: [expect.objectContaining({ with: expect.objectContaining({ activity: 'Yoga' }) }), expect.anything()] });
   });
 
   it('member sees the slot, books, and desk checks them in once', async () => {
