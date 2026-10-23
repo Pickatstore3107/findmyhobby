@@ -1,0 +1,39 @@
+# Caddy gets and renews HTTPS certificates automatically. DOMAIN comes from /etc/caddy/caddy.env.
+{
+	email {$ADMIN_EMAIL}
+}
+
+# Website pages, the admin console (/console) and the API for the console (/api)
+{$DOMAIN}, www.{$DOMAIN} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options DENY
+		-Server
+	}
+	@www host www.{$DOMAIN}
+	redir @www https://{$DOMAIN}{uri} permanent
+
+	handle_path /api/* {
+		reverse_proxy 127.0.0.1:4000
+	}
+	handle /console* {
+		root * /srv/fmh/www
+		try_files {path} /console/index.html
+		file_server
+	}
+	handle {
+		root * /srv/fmh/www
+		try_files {path} {path}.html {path}/index.html
+		file_server
+	}
+}
+
+# API for the phone app, the payment page and Razorpay webhooks
+api.{$DOMAIN} {
+	encode zstd gzip
+	header -Server
+	reverse_proxy 127.0.0.1:4000
+}

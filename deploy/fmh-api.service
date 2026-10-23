@@ -1,0 +1,24 @@
+# /etc/systemd/system/fmh-api.service — keeps the API running and restarts it if it ever stops.
+[Unit]
+Description=FindMyHobby API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=fmh
+WorkingDirectory=/srv/fmh/app/api
+# Secrets come from AWS Parameter Store into a memory-only file each time the service starts.
+ExecStartPre=+/srv/fmh/app/deploy/load-secrets.sh
+EnvironmentFile=/run/fmh/api.env
+ExecStart=/usr/bin/node node_modules/tsx/dist/cli.mjs src/server.ts
+Restart=always
+RestartSec=3
+# Hardening: the API can only write to its own temp space.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/tmp
+
+[Install]
+WantedBy=multi-user.target

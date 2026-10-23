@@ -53,6 +53,9 @@ importers:
       '@fastify/rate-limit':
         specifier: ^11.2.1
         version: 11.2.1
+      aws-ssl-profiles:
+        specifier: ^1.1.2
+        version: 1.1.2
       drizzle-orm:
         specifier: ^0.45.4
         version: 0.45.4(mysql2@3.24.6(@types/node@26.6.5))

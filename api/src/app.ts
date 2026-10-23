@@ -14,7 +14,8 @@ export function buildApp(deps: Deps = { verifyGoogle }) {
   const app = Fastify({
     logger: process.env.NODE_ENV !== 'test',
     bodyLimit: 64 * 1024,
-    trustProxy: process.env.TRUST_PROXY === '1', // only behind our own load balancer, so client IPs can't be spoofed
+    // Behind our own Caddy on the same machine: trust its X-Forwarded-For, and nobody else's (rate limits rely on real IPs).
+    trustProxy: process.env.TRUST_PROXY === '1' ? '127.0.0.1' : false,
   });
   app.register(helmet);
   app.register(cors, { origin: (process.env.ADMIN_ORIGIN ?? '').split(',').filter(Boolean), methods: ['GET', 'POST', 'PATCH', 'DELETE'] });
