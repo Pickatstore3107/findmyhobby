@@ -44,7 +44,10 @@ export async function payRoutes(app: FastifyInstance) {
 
     // JSON is embedded with "<" escaped so nothing in it can break out of the script tag.
     const cfg = JSON.stringify({ key: publicKeyId(), order_id: row.orderId, amount: b.amount, currency: 'INR', name: 'FindMyHobby Club',
-      description: `Booking ${ref}`, theme: { color: '#EC3013' }, ref, back }).replace(/</g, '\\u003c');
+      description: `Booking ${ref}`, theme: { color: '#EC3013' }, ref, back,
+      // The member's own details, so checkout doesn't ask for them again.
+      prefill: { name: row.name, email: row.email.startsWith('deleted-') ? undefined : row.email, ...(row.phone && { contact: `+91${row.phone}` }) },
+    }).replace(/</g, '\\u003c');
     return page(reply, nonce, `<h1>Opening secure payment…</h1><p>Pay with any UPI app, card or net banking.</p><button id="retry" hidden>Try again</button>
 <script src="https://checkout.razorpay.com/v1/checkout.js" nonce="${nonce}"></script>
 <script nonce="${nonce}">

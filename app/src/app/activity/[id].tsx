@@ -130,7 +130,7 @@ export default function ActivityScreen() {
               <Stepper label="+" disabled={seats >= maxSeats} onPress={() => setSeats(seats + 1)} />
             </View>
             <View style={{ flex: 1 }}>
-              <Segmented value={pay} onChange={setPay} options={[online ? { value: 'gateway', label: 'Pay online' } : { value: 'upi', label: 'UPI' }, { value: 'venue', label: 'At venue' }]} />
+              <Segmented value={pay} onChange={setPay} options={[online ? { value: 'gateway', label: 'Online' } : { value: 'upi', label: 'UPI' }, { value: 'venue', label: 'At venue' }]} />
             </View>
           </View>
         )}

@@ -2,7 +2,7 @@
 // Razorpay's signature, and it confirms each payment exactly once however many times the news arrives.
 import { and, eq, gt, ne, sql } from 'drizzle-orm';
 import { db } from './db/index.ts';
-import { bookings, payments, slots } from './db/schema.ts';
+import { bookings, payments, slots, users } from './db/schema.ts';
 import { AppError, tx } from './booking.ts';
 import { createOrder, refundPayment } from './razorpay.ts';
 
@@ -81,8 +81,9 @@ export async function confirmOnlinePayment(orderId: string, paymentId: string, a
 
 /** Booking status as the app sees it while waiting for payment. */
 export async function onlineOrderFor(ref: string) {
-  const [row] = await db.select({ booking: bookings, orderId: payments.gatewayOrderId }).from(bookings)
+  const [row] = await db.select({ booking: bookings, orderId: payments.gatewayOrderId, name: users.name, email: users.email, phone: users.phone }).from(bookings)
     .leftJoin(payments, and(eq(payments.bookingId, bookings.id), eq(payments.method, 'gateway'), gt(payments.amount, 0)))
+    .innerJoin(users, eq(users.id, bookings.userId))
     .where(eq(bookings.ref, ref));
   return row;
 }
