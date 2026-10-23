@@ -11,6 +11,7 @@ export class AppError extends Error {
 
 const MIN = 60_000, HOUR = 60 * MIN, DAY = 24 * HOUR, IST = 5.5 * HOUR;
 export const HOLD_MS = 10 * MIN;        // time to pay by UPI before the seat is released
+export const ONLINE_HOLD_MS = 15 * MIN; // online payment (Razorpay) gets a little longer
 export const CANCEL_CUTOFF_MS = 2 * HOUR;
 export const BOOKABLE_DAYS = 4;
 
@@ -51,7 +52,11 @@ async function settleCancelled(t: Tx, bookingId: number) {
 
 type SlotInput = { activityId: number; zoneId: number; startsAt: Date; endsAt: Date; price: number; capacity: number; hostName?: string };
 
-export function createSlot(adminId: number, input: SlotInput) {
+const toMinute = (d: Date) => new Date(Math.floor(+d / 60_000) * 60_000);
+
+export function createSlot(adminId: number, raw: SlotInput) {
+  // Slots start and end on whole minutes, so stored times match exactly (the database keeps no milliseconds).
+  const input = { ...raw, startsAt: toMinute(raw.startsAt), endsAt: toMinute(raw.endsAt) };
   if (input.endsAt <= input.startsAt) throw new AppError('INVALID_TIMES');
   return tx(async (t) => {
     // Locking the zone row makes scheduling in the same zone one-at-a-time, so two admins can't create clashing slots.
@@ -70,7 +75,7 @@ export function createSlot(adminId: number, input: SlotInput) {
 
 // ── Member: booking ─────────────────────────────────────────────────────────
 
-type BookInput = { userId: number; slotId: number; seats: number; method: 'upi' | 'venue'; idempotencyKey: string; now?: Date };
+type BookInput = { userId: number; slotId: number; seats: number; method: 'upi' | 'venue' | 'gateway'; idempotencyKey: string; now?: Date };
 
 export async function bookSlot({ userId, slotId, seats, method, idempotencyKey, now = new Date() }: BookInput) {
   if (!Number.isInteger(seats) || seats < 1 || seats > 3) throw new AppError('INVALID_SEATS');
@@ -90,9 +95,9 @@ export async function bookSlot({ userId, slotId, seats, method, idempotencyKey, 
       }
       const booking = {
         ref: newRef(), slotId, userId, seats, amount: slot.price * seats, idempotencyKey,
-        // UPI bookings hold the seat while the user pays; pay-at-venue bookings are confirmed and settled at the desk.
-        status: method === 'upi' ? 'pending' as const : 'confirmed' as const,
-        holdUntil: method === 'upi' ? new Date(now.getTime() + HOLD_MS) : null,
+        // UPI and online bookings hold the seat while the member pays; pay-at-venue bookings are confirmed and settled at the desk.
+        method, status: method === 'venue' ? 'confirmed' as const : 'pending' as const,
+        holdUntil: method === 'venue' ? null : new Date(now.getTime() + (method === 'gateway' ? ONLINE_HOLD_MS : HOLD_MS)),
       };
       const [ins] = await t.insert(bookings).values(booking);
       if (method === 'venue') await t.insert(payments).values({ bookingId: ins.insertId, method, amount: booking.amount, status: 'pending' });
@@ -116,6 +121,7 @@ export async function submitUtr(userId: number, ref: string, utr: string, now = 
       const [b] = await t.select().from(bookings).where(and(eq(bookings.ref, ref), eq(bookings.userId, userId))).for('update');
       if (!b) throw new AppError('BOOKING_NOT_FOUND', 404);
       if (b.status !== 'pending' || !b.holdUntil || b.holdUntil <= now) throw new AppError('HOLD_EXPIRED', 409);
+      if (b.method !== 'upi') throw new AppError('NOT_A_UPI_BOOKING', 409);
       await t.insert(payments).values({ bookingId: b.id, method: 'upi', amount: b.amount, utr, status: 'pending' });
       await t.update(bookings).set({ holdUntil: null }).where(eq(bookings.id, b.id));
     });

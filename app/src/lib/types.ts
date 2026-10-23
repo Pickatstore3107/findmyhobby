@@ -7,14 +7,14 @@ export type Tournament = {
 };
 export type Catalog = {
   categories: Category[]; activities: Activity[]; tournaments: Tournament[];
-  payment: { upiId: string; payeeName: string }; imageBase: string;
+  payment: { online: boolean; upiId: string; payeeName: string }; imageBase: string;
 };
 export type Slot = {
   id: number; activityId: number; activity: string; zone: string; startsAt: string; endsAt: string;
   price: number; hostName: string | null; seatsLeft: number; capacity: number;
 };
 export type MyBooking = {
-  ref: string; status: 'pending' | 'confirmed' | 'checked_in' | 'cancelled' | 'no_show' | 'expired';
+  ref: string; status: 'pending' | 'confirmed' | 'checked_in' | 'cancelled' | 'no_show' | 'expired'; method: 'upi' | 'venue' | 'gateway';
   seats: number; amount: number; holdUntil: string | null; activityId: number; activity: string; zone: string;
   startsAt: string; endsAt: string; hostName: string | null;
 };

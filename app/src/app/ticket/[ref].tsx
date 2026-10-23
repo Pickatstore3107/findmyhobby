@@ -1,12 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Linking, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
 import QRCode from 'react-native-qrcode-svg';
+import * as Haptics from 'expo-haptics';
 import { fmtDay, fmtRange, fmtTime, rupees } from '@fmh/shared/time';
 import { goBack } from '@/lib/nav';
 import { api, message, useApi, useNow } from '@/lib/api';
 import { mascot } from '@/lib/mascots';
+import { openPayment } from '@/lib/pay';
 import { C, F, GUTTER } from '@/lib/theme';
 import type { Catalog, MyBooking } from '@/lib/types';
 import { Btn, Note, T } from '@/components/ui';
@@ -22,10 +24,25 @@ export default function Ticket() {
   const now = useNow(1000); // ticks every second for the payment countdown
   const left = b?.holdUntil ? Math.max(0, Math.round((+new Date(b.holdUntil) - now) / 1000)) : 0;
 
+  // While an online payment is in progress, ask our server every 3 seconds; it hears from Razorpay directly.
+  const waitingOnline = b?.status === 'pending' && b.method === 'gateway';
+  const { reload } = mine;
+  useEffect(() => {
+    if (!waitingOnline) return;
+    const t = setInterval(reload, 3000);
+    return () => clearInterval(t);
+  }, [waitingOnline, reload]);
+  // A little buzz the moment the payment goes through.
+  const lastStatus = useRef(b?.status);
+  useEffect(() => {
+    if (lastStatus.current === 'pending' && b?.status === 'confirmed') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    lastStatus.current = b?.status;
+  }, [b?.status]);
+
   if (!b) return <View style={{ flex: 1, backgroundColor: C.bg, padding: GUTTER }}><T>{mine.loading ? 'Loading…' : 'Booking not found.'}</T></View>;
 
   const awaitingPayment = b.status === 'pending' && !!b.holdUntil && left > 0; // UPI: must pay within 10 minutes
-  const verifying = b.status === 'pending' && !b.holdUntil;                 // UTR sent, the club is checking it
+  const verifying = b.method === 'upi' && b.status === 'pending' && !b.holdUntil; // UTR sent, the club is checking it
   const cancellable = ['pending', 'confirmed'].includes(b.status) && +new Date(b.startsAt) - now > 2 * 3600e3;
   const upi = catalog.data?.payment;
   const activity = { id: b.activityId, name: b.activity };
@@ -56,7 +73,7 @@ export default function Ticket() {
   const [kicker, title] =
     awaitingPayment ? [`Pay to confirm · ${b.ref}`, `Almost there.\nPay ${rupees(b.amount)}.`]
     : verifying ? [`Verifying payment · ${b.ref}`, `Payment sent.\nWe’re checking it.`]
-    : b.status === 'confirmed' ? [`Booking confirmed · ${b.ref}`, `You’re in.\nSee you at ${fmtTime(b.startsAt)}.`]
+    : b.status === 'confirmed' ? [b.method === 'gateway' ? `Payment successful · ${b.ref}` : `Booking confirmed · ${b.ref}`, `You’re in.\nSee you at ${fmtTime(b.startsAt)}.`]
     : b.status === 'checked_in' ? [`Checked in · ${b.ref}`, 'Enjoy your\nhour!']
     : b.status === 'pending' ? [`Payment time ran out · ${b.ref}`, 'Seat\nreleased.']
     : [`${b.status.replace('_', ' ')} · ${b.ref}`, 'This booking\nis closed.'];
@@ -69,7 +86,20 @@ export default function Ticket() {
       </View>
       <Text style={{ fontFamily: F.bold, fontSize: 44, lineHeight: 44, letterSpacing: -1.5, color: C.ink, marginTop: 10, marginBottom: 20 }}>{title}</Text>
 
-      {awaitingPayment && (
+      {b.status === 'confirmed' && b.method === 'gateway' && (
+        <View style={{ backgroundColor: '#1D6B3A', padding: 16, marginBottom: 20, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <Text style={{ fontFamily: F.bold, fontSize: 30, color: C.white }}>✓</Text>
+          <Text style={{ fontFamily: F.bold, fontSize: 16, color: C.white, flex: 1 }}>{rupees(b.amount)} paid to FindMyHobby Club. Your seats are confirmed.</Text>
+        </View>
+      )}
+      {awaitingPayment && b.method === 'gateway' && (
+        <View style={{ borderWidth: 2, borderColor: C.ink, backgroundColor: C.white, padding: 16, marginBottom: 20, gap: 10 }}>
+          <T v="title">Pay within <Text style={{ color: C.accent700 }}>{Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}</Text> to keep your seats</T>
+          <Btn label="Pay securely" right={rupees(b.amount)} onPress={() => openPayment(b.ref)} />
+          <T v="small">UPI apps, cards and net banking, handled by Razorpay. This screen updates by itself once you have paid.</T>
+        </View>
+      )}
+      {awaitingPayment && b.method === 'upi' && (
         <View style={{ borderWidth: 2, borderColor: C.ink, backgroundColor: C.white, padding: 16, marginBottom: 20, gap: 10 }}>
           <T v="title">1. Pay {rupees(b.amount)} by UPI <Text style={{ color: C.accent700 }}>· {Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')} left</Text></T>
           {upi?.upiId ? <>

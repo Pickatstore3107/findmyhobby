@@ -7,6 +7,8 @@ import { AppError, bookSlot, cancelBooking, submitUtr, windowEnd } from '../book
 import { bearer, login, logout, requireUser } from '../auth.ts';
 import { parse } from '../validate.ts';
 import { getBracket, register, unregister } from '../tournament.ts';
+import { startOnlinePayment } from '../online.ts';
+import { onlineEnabled } from '../razorpay.ts';
 import type { Deps } from '../app.ts';
 
 const tourId = z.object({ id: z.coerce.number().int().positive() });
@@ -36,7 +38,7 @@ export const memberRoutes = (deps: Deps) => async (app: FastifyInstance) => {
     tournaments: await db.select({ ...getTableColumns(tournaments), players: sql<number>`(SELECT COUNT(*) FROM tournament_players tp WHERE tp.tournament_id = tournaments.id)` })
       .from(tournaments).where(inArray(tournaments.status, ['open', 'closed', 'live'])).orderBy(asc(tournaments.startsAt)),
     // Where members pay by UPI. Set UPI_ID / UPI_NAME on the server; the app opens any UPI app with these filled in.
-    payment: { upiId: process.env.UPI_ID ?? '', payeeName: process.env.UPI_NAME ?? 'FindMyHobby Club' },
+    payment: { online: onlineEnabled(), upiId: process.env.UPI_ID ?? '', payeeName: process.env.UPI_NAME ?? 'FindMyHobby Club' },
     imageBase: process.env.IMAGE_BASE_URL ?? '',
   }));
 
@@ -93,7 +95,7 @@ export const memberRoutes = (deps: Deps) => async (app: FastifyInstance) => {
   app.get('/bookings', async (req) => {
     const user = await requireUser(req);
     return db.select({
-      ref: bookings.ref, status: bookings.status, seats: bookings.seats, amount: bookings.amount, holdUntil: bookings.holdUntil,
+      ref: bookings.ref, status: bookings.status, method: bookings.method, seats: bookings.seats, amount: bookings.amount, holdUntil: bookings.holdUntil,
       activityId: activities.id, activity: activities.name, zone: zones.name, startsAt: slots.startsAt, endsAt: slots.endsAt, hostName: slots.hostName,
     }).from(bookings)
       .innerJoin(slots, eq(slots.id, bookings.slotId))
@@ -108,10 +110,12 @@ export const memberRoutes = (deps: Deps) => async (app: FastifyInstance) => {
     const body = parse(z.object({
       slotId: z.number().int().positive(),
       seats: z.number().int().min(1).max(3),
-      method: z.enum(['upi', 'venue']),
+      method: z.enum(['upi', 'venue', 'gateway']),
       idempotencyKey: z.string().min(8).max(64), // the app generates one per tap of "Book"
     }), req.body);
+    if (body.method === 'gateway' && !onlineEnabled()) throw new AppError('ONLINE_PAYMENT_UNAVAILABLE', 503);
     const { id, idempotencyKey, ...booking } = await bookSlot({ ...body, userId: user.id });
+    if (body.method === 'gateway' && booking.status === 'pending') await startOnlinePayment({ id, ref: booking.ref, amount: booking.amount });
     return booking;
   });
 

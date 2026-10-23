@@ -8,6 +8,7 @@ import { fmtRange, istDate, istDay, rupees } from '@fmh/shared/time';
 import { goBack } from '@/lib/nav';
 import { api, message, useApi } from '@/lib/api';
 import { mascot } from '@/lib/mascots';
+import { openPayment } from '@/lib/pay';
 import { C, F, GUTTER } from '@/lib/theme';
 import type { Catalog, MyBooking, Slot } from '@/lib/types';
 import { Btn, Note, Segmented, T } from '@/components/ui';
@@ -22,13 +23,15 @@ export default function ActivityScreen() {
   const mine = useApi<MyBooking[]>('/bookings');
 
   const activity = catalog.data?.activities.find((a) => a.id === Number(id));
+  const online = !!catalog.data?.payment.online;
   const category = catalog.data?.categories.find((c) => c.id === activity?.categoryId);
   const days = useMemo(() => Array.from({ length: DAYS }, (_, i) => istDay(i)), []);
   const preselected = slots.data?.find((s) => s.id === Number(preselect));
   const [day, setDay] = useState<string | null>(null);
   const [selected, setSelected] = useState<number | null>(preselect ? Number(preselect) : null);
   const [seats, setSeats] = useState(1);
-  const [pay, setPay] = useState<'upi' | 'venue'>('upi');
+  const [choice, setPay] = useState<'upi' | 'venue' | 'gateway' | null>(null);
+  const pay = choice ?? (online ? 'gateway' : 'upi'); // online payment is the default whenever the club has it switched on
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const requestKey = useRef(Crypto.randomUUID()); // one key per booking attempt, so a retry can never double-book
@@ -50,6 +53,7 @@ export default function ActivityScreen() {
       requestKey.current = Crypto.randomUUID();
       slots.reload(); mine.reload();
       router.push(`/ticket/${b.ref}`);
+      if (pay === 'gateway') await openPayment(b.ref);
     } catch (e) { setError(message(e)); slots.reload(); }
     finally { setBusy(false); }
   };
@@ -126,7 +130,7 @@ export default function ActivityScreen() {
               <Stepper label="+" disabled={seats >= maxSeats} onPress={() => setSeats(seats + 1)} />
             </View>
             <View style={{ flex: 1 }}>
-              <Segmented value={pay} onChange={setPay} options={[{ value: 'upi', label: 'UPI' }, { value: 'venue', label: 'At venue' }]} />
+              <Segmented value={pay} onChange={setPay} options={[online ? { value: 'gateway', label: 'Pay online' } : { value: 'upi', label: 'UPI' }, { value: 'venue', label: 'At venue' }]} />
             </View>
           </View>
         )}

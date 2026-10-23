@@ -79,6 +79,7 @@ export const bookings = mysqlTable('bookings', {
   seats: tinyint('seats').notNull(),
   amount: int('amount').notNull(),
   status: mysqlEnum('status', ['pending', 'confirmed', 'checked_in', 'cancelled', 'no_show', 'expired']).notNull(),
+  method: mysqlEnum('method', ['upi', 'venue', 'gateway']).notNull().default('upi'), // how the member chose to pay
   holdUntil: datetime('hold_until'), // unpaid UPI bookings release their seats after this
   idempotencyKey: varchar('idempotency_key', { length: 64 }).notNull().unique(), // network retries can't double-book
   // Non-null only while the booking is active, so a user holds at most one active booking per slot.
@@ -100,6 +101,8 @@ export const payments = mysqlTable('payments', {
   method: mysqlEnum('method', ['upi', 'venue', 'gateway']).notNull(),
   amount: int('amount').notNull(), // negative = refund
   utr: varchar('utr', { length: 22 }).unique(), // a UPI reference can be claimed only once
+  gatewayOrderId: varchar('gateway_order_id', { length: 40 }).unique(),     // Razorpay order_…
+  gatewayPaymentId: varchar('gateway_payment_id', { length: 40 }).unique(), // Razorpay pay_… (one payment confirms once)
   status: mysqlEnum('status', ['pending', 'verified', 'rejected']).notNull(),
   verifiedBy: int('verified_by').references(() => users.id),
   verifiedAt: datetime('verified_at'),

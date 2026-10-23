@@ -6,6 +6,7 @@ import { AppError } from './booking.ts';
 import { verifyGoogle, type GoogleProfile } from './auth.ts';
 import { memberRoutes } from './routes/member.ts';
 import { adminRoutes } from './routes/admin.ts';
+import { payRoutes } from './routes/pay.ts';
 
 export type Deps = { verifyGoogle: (idToken: string) => Promise<GoogleProfile> };
 
@@ -29,5 +30,6 @@ export function buildApp(deps: Deps = { verifyGoogle }) {
   app.get('/health', async () => ({ ok: true }));
   app.register(memberRoutes(deps));
   app.register(adminRoutes, { prefix: '/admin' });
+  app.register(payRoutes);
   return app;
 }
