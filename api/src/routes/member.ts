@@ -20,6 +20,15 @@ export const memberRoutes = (deps: Deps) => async (app: FastifyInstance) => {
     return { token, user: { id: user.id, name: user.name, email: user.email, role: user.role } };
   });
 
+  // Local development only: sign in with just an email. Never available in production.
+  if (process.env.DEV_LOGIN === '1' && process.env.NODE_ENV !== 'production') {
+    app.post('/auth/dev', async (req) => {
+      const { email } = parse(z.object({ email: z.email() }), req.body);
+      const { token, user } = await login({ sub: `dev-${email}`, email, name: email.split('@')[0] });
+      return { token, user: { id: user.id, name: user.name, email: user.email, role: user.role } };
+    });
+  }
+
   /** Everything Home needs in one request: categories, activities and the tournament banner. */
   app.get('/catalog', async () => ({
     categories: await db.select().from(categories).orderBy(asc(categories.sort)),

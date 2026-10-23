@@ -3,9 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx watch --env-file=.env src/server.ts",
     "db:push": "drizzle-kit push",
-    "test": "vitest run"
+    "test": "vitest run",
+    "seed": "tsx --env-file=.env src/seed.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.3.1",
