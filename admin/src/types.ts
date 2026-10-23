@@ -13,5 +13,12 @@ export type Payment = {
   ref: string | null; name: string | null; phone: string | null;
 };
 export type Activity = { id: number; name: string; categoryId: number; defaultPrice: number; defaultCapacity: number; active: boolean; imageKey: string | null };
-export type Catalog = { categories: { id: number; name: string; emoji: string }[]; zones: { id: number; name: string }[]; activities: Activity[] };
+export type Catalog = { categories: { id: number; name: string; emoji: string; sort: number }[]; zones: { id: number; name: string }[]; activities: Activity[]; imageBase: string };
 export type Revenue = { day: string; collected: string; refunded: string; net: string }[];
+export type Tournament = {
+  id: number; title: string; activityId: number; startsAt: string; entryFee: number; maxPlayers: number;
+  bannerKey: string | null; status: 'draft' | 'open' | 'closed' | 'live' | 'finished';
+};
+export type Match = { id: number; round: number; position: number; player1Id: number | null; player2Id: number | null; winnerId: number | null };
+export type Bracket = { tournament: Tournament; players: { id: number; name: string }[]; matches: Match[] };
+export type AdminUser = { id: number; name: string; email: string; phone: string | null; role: 'member' | 'desk' | 'manager' | 'owner'; blocked: boolean };

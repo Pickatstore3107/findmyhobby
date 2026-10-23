@@ -7,6 +7,7 @@ import { AppError, cancelSlot, checkIn, createSlot, verifyPayment } from '../boo
 import { requireUser } from '../auth.ts';
 import { parse } from '../validate.ts';
 import { generateDraw, setWinner } from '../tournament.ts';
+import { imageBase, signUpload } from '../uploads.ts';
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 const range = z.object({ from: z.coerce.date(), to: z.coerce.date() }).refine((r) => r.to > r.from && +r.to - +r.from <= 93 * 864e5);
@@ -99,7 +100,27 @@ export async function adminRoutes(app: FastifyInstance) {
 
   app.get('/catalog', async (req) => {
     await requireUser(req, 'desk');
-    return { categories: await db.select().from(categories), zones: await db.select().from(zones), activities: await db.select().from(activities) };
+    return { categories: await db.select().from(categories), zones: await db.select().from(zones), activities: await db.select().from(activities), imageBase: imageBase() };
+  });
+
+  /** Signed, 5-minute upload form for one image (max 5 MB, JPEG/PNG/WebP). */
+  app.post('/uploads', async (req) => {
+    await requireUser(req, 'manager');
+    const { folder, contentType } = parse(z.object({ folder: z.enum(['activities', 'tournaments']), contentType: z.string() }), req.body);
+    return signUpload(folder, contentType);
+  });
+
+  app.patch('/zones/:id', async (req) => {
+    await requireUser(req, 'manager');
+    await db.update(zones).set(parse(z.object({ name: z.string().trim().min(1).max(50) }), req.body)).where(eq(zones.id, parse(idParam, req.params).id));
+    return { ok: true };
+  });
+
+  app.patch('/categories/:id', async (req) => {
+    await requireUser(req, 'manager');
+    const body = parse(z.object({ name: z.string().trim().min(1).max(30), emoji: z.string().min(1).max(8), sort: z.number().int().min(0).max(100) }).partial(), req.body);
+    await db.update(categories).set(body).where(eq(categories.id, parse(idParam, req.params).id));
+    return { ok: true };
   });
 
   app.post('/zones', async (req) => {
@@ -120,7 +141,9 @@ export async function adminRoutes(app: FastifyInstance) {
     await requireUser(req, 'manager');
     const { status } = parse(z.object({ status: z.enum(['pending', 'verified', 'rejected']).default('pending') }), req.query);
     return db.select({ payment: payments, ref: bookings.ref, name: users.name, phone: users.phone }).from(payments)
-      .leftJoin(bookings, eq(bookings.id, payments.bookingId)).leftJoin(users, eq(users.id, bookings.userId))
+      .leftJoin(bookings, eq(bookings.id, payments.bookingId))
+      .leftJoin(tournamentPlayers, eq(tournamentPlayers.id, payments.tournamentPlayerId)) // tournament entry fees
+      .leftJoin(users, eq(users.id, sql`COALESCE(${bookings.userId}, ${tournamentPlayers.userId})`))
       .where(eq(payments.status, status)).orderBy(desc(payments.createdAt)).limit(200);
   });
 
@@ -164,7 +187,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   app.get('/tournaments', async (req) => {
     await requireUser(req, 'desk');
-    return db.select({ tournament: tournaments, players: sql<number>`(SELECT COUNT(*) FROM tournament_players tp WHERE tp.tournament_id = ${tournaments.id})` })
+    return db.select({ tournament: tournaments, players: sql<number>`(SELECT COUNT(*) FROM tournament_players tp WHERE tp.tournament_id = tournaments.id)` })
       .from(tournaments).orderBy(desc(tournaments.startsAt)).limit(100);
   });
 
@@ -187,7 +210,7 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get('/revenue', async (req) => {
     await requireUser(req, 'owner');
     const { from, to } = parse(range, req.query);
-    const day = sql<string>`DATE(CONVERT_TZ(${payments.verifiedAt}, '+00:00', '+05:30'))`;
+    const day = sql<string>`DATE_FORMAT(CONVERT_TZ(${payments.verifiedAt}, '+00:00', '+05:30'), '%Y-%m-%d')`;
     return db.select({
       day, collected: sql<number>`SUM(GREATEST(${payments.amount}, 0))`,
       refunded: sql<number>`-SUM(LEAST(${payments.amount}, 0))`, net: sql<number>`SUM(${payments.amount})`,

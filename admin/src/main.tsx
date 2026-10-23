@@ -4,20 +4,27 @@ import { api, getToken, setToken, useApi } from './api.ts';
 import { Login } from './pages/Login.tsx';
 import { Today } from './pages/Today.tsx';
 import { Schedule } from './pages/Schedule.tsx';
+import { Bookings } from './pages/Bookings.tsx';
+import { Payments } from './pages/Payments.tsx';
+import { Checkin } from './pages/Checkin.tsx';
+import { Tournaments } from './pages/Tournaments.tsx';
+import { Catalog } from './pages/Catalog.tsx';
+import { Money } from './pages/Money.tsx';
+import { People } from './pages/People.tsx';
 import { can, type Me, type Role } from './roles.ts';
 import './ui.css';
 
 
-const PAGES: [path: string, label: string, minRole: Role, Page?: (p: { me: Me }) => React.ReactNode][] = [
+const PAGES: [path: string, label: string, minRole: Role, Page: (p: { me: Me }) => React.ReactNode][] = [
   ['today', 'Today', 'desk', Today],
   ['schedule', 'Schedule', 'desk', Schedule],
-  ['bookings', 'Bookings', 'desk'],
-  ['payments', 'Payments', 'manager'],
-  ['checkin', 'Check-in', 'desk'],
-  ['tournaments', 'Tournaments', 'desk'],
-  ['catalog', 'Activities & zones', 'manager'],
-  ['money', 'Money', 'owner'],
-  ['people', 'People', 'owner'],
+  ['bookings', 'Bookings', 'desk', Bookings],
+  ['payments', 'Payments', 'manager', Payments],
+  ['checkin', 'Check-in', 'desk', Checkin],
+  ['tournaments', 'Tournaments', 'desk', Tournaments],
+  ['catalog', 'Activities & zones', 'manager', Catalog],
+  ['money', 'Money', 'owner', Money],
+  ['people', 'People', 'owner', People],
 ];
 
 function useHash() {
@@ -50,7 +57,7 @@ function App() {
         <div className="who"><b>{me.data.name}</b><div className="muted">{me.data.role}</div>
           <button className="btn small" onClick={signOut}>Sign out</button></div>
       </aside>
-      <main>{Page ? <Page me={me.data} /> : <><h1>{label}</h1><p className="note">This page is being built next.</p></>}</main>
+      <main><Page me={me.data} /></main>
     </div>
   );
 }

@@ -99,4 +99,18 @@ describe('full flow', () => {
     expect((await call('DELETE', '/me', { token: temp })).status).toBe(200);
     expect((await call('GET', '/me', { token: temp })).status).toBe(401);
   });
+
+  it('admin tournament list counts registered players correctly', async () => {
+    const act = (await call('GET', '/catalog')).body.activities[0].id;
+    const id = (await call('POST', '/admin/tournaments', { token: owner, body: {
+      title: 'Count Cup', activityId: act, startsAt: inMinutes(3000), entryFee: 0, maxPlayers: 8, status: 'open' } })).body.id;
+    for (const email of ['p1@x.in', 'p2@x.in', 'p3@x.in']) {
+      const t = await loginAs(email);
+      expect((await call('POST', `/tournaments/${id}/register`, { token: t })).body.error).toBe('PHONE_REQUIRED');
+      await call('PATCH', '/me', { token: t, body: { phone: '9876543210' } });
+      expect((await call('POST', `/tournaments/${id}/register`, { token: t })).status).toBe(200);
+    }
+    const list = (await call('GET', '/admin/tournaments', { token: owner })).body;
+    expect(list.find((r: any) => r.tournament.id === id).players).toBe(3);
+  });
 });
