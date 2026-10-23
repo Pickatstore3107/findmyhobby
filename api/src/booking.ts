@@ -25,14 +25,14 @@ const mysqlError = (e: unknown) => ((e as any)?.cause ?? e) as { code?: string; 
 const isDup = (e: unknown, key: string) => mysqlError(e).code === 'ER_DUP_ENTRY' && !!mysqlError(e).message?.includes(key);
 
 /** Runs a transaction, retrying the rare InnoDB deadlock instead of failing the user. */
-async function tx<T>(fn: (t: Tx) => Promise<T>): Promise<T> {
+export async function tx<T>(fn: (t: Tx) => Promise<T>): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try { return await db.transaction(fn); }
     catch (e) { if (mysqlError(e).errno !== 1213 || attempt === 3) throw e; }
   }
 }
 
-const audit = (t: Tx, actorId: number, action: string, entity: string, entityId: number, data?: unknown) =>
+export const audit = (t: Tx, actorId: number, action: string, entity: string, entityId: number, data?: unknown) =>
   t.insert(auditLog).values({ actorId, action, entity, entityId, data });
 
 /** Gives seats back to a slot. */

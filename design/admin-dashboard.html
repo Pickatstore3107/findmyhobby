@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FindMyHobby Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#F3F2F2;--surface:#EAE9E9;--ink:#201E1D;--accent:#EC3013;--accent-100:#FFF2EF;--accent-400:#FF9783;--accent-700:#AE1800;
+  --n200:#EAE7E7;--n400:#BAB6B6;--n500:#9B9797;--n600:#7D7979;--n700:#605D5D;--illus:#E9E6DF;--rule:color-mix(in srgb,#201E1D 40%,transparent);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font-family:Archivo,system-ui,sans-serif;font-size:14px;line-height:1.45}
+.app{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
+.kicker{font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--n600)}
+.num{font-variant-numeric:tabular-nums}
+
+/* Sidebar */
+aside{border-right:2px solid var(--ink);display:flex;flex-direction:column;padding:20px 0}
+.brand{padding:0 20px 20px;border-bottom:2px solid var(--ink)}
+.brand b{font-size:18px;font-weight:800;letter-spacing:-.02em;display:block}
+.brand span{font-size:12px;color:var(--n600)}
+nav{display:flex;flex-direction:column;padding:12px 0}
+nav a{display:flex;justify-content:space-between;align-items:center;padding:10px 20px;font-weight:600;color:var(--n700);text-decoration:none;border-left:3px solid transparent}
+nav a:hover{background:var(--n200)}
+nav a.on{color:var(--ink);font-weight:800;border-left-color:var(--accent);background:var(--surface)}
+nav .badge{background:var(--accent);color:#fff;font-size:11px;font-weight:800;padding:1px 7px}
+nav .sep{height:1px;background:var(--rule);margin:10px 20px}
+.who{margin-top:auto;padding:16px 20px 0;border-top:2px solid var(--ink);display:flex;gap:10px;align-items:center}
+.who .av{width:34px;height:34px;border-radius:50%;background:var(--illus);border:2px solid var(--ink);display:grid;place-items:center;font-weight:800;font-size:13px}
+.who small{display:block;color:var(--n600);font-size:12px}
+
+/* Main */
+main{padding:28px 32px 40px;min-width:0}
+header{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:24px}
+h1{font-size:52px;font-weight:800;letter-spacing:-.035em;line-height:.95;margin-top:6px}
+.actions{display:flex;gap:10px}
+.btn{white-space:nowrap;height:46px;padding:0 18px;border:2px solid var(--ink);background:transparent;font:800 14px Archivo,sans-serif;display:flex;align-items:center;gap:28px;justify-content:space-between;cursor:pointer;color:var(--ink)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:#DD2B0F}
+.btn:active{transform:scale(.98)}
+
+.stats{display:grid;grid-template-columns:repeat(4,1fr);border-top:2px solid var(--ink);border-bottom:2px solid var(--ink);margin-bottom:32px}
+.stat{padding:16px 20px 18px;border-left:1px solid var(--rule)}
+.stat:first-child{border-left:0;padding-left:0}
+.stat .v{font-size:34px;font-weight:800;letter-spacing:-.03em;margin-top:4px}
+.stat .v small{font-size:16px;color:var(--n500);font-weight:600}
+.stat .s{font-size:12px;color:var(--n600)}
+.stat.hot .v{color:var(--accent)}
+
+.cols>div:last-child{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:32px;align-items:start}
+.sec{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px}
+.sec h2{font-size:20px;font-weight:800;letter-spacing:-.01em}
+.sec a{color:var(--accent-700);font-weight:800;font-size:13px;text-decoration:none}
+
+/* Zone timeline */
+.timeline{border-top:2px solid var(--ink);position:relative}
+.hours,.zone{display:grid;grid-template-columns:120px 1fr}
+.hours div:last-child{display:grid;grid-template-columns:repeat(15,1fr)}
+.hours span{font-size:10px;font-weight:600;color:var(--n600);padding:8px 0 6px 4px;border-left:1px solid var(--rule)}
+.zone{border-top:1px solid var(--rule);min-height:92px}
+.zone:last-child{border-bottom:2px solid var(--ink)}
+.zname{padding:12px 12px 12px 0;border-right:2px solid var(--ink)}
+.zname b{display:block;font-size:15px;font-weight:800}
+.zname span{font-size:11px;color:var(--n600)}
+.lane{position:relative;background:repeating-linear-gradient(90deg,transparent 0,transparent calc(100%/15 - 1px),var(--rule) calc(100%/15 - 1px),var(--rule) calc(100%/15))}
+.blk{z-index:3;position:absolute;top:10px;bottom:10px;margin-right:3px;background:var(--illus);border:2px solid var(--ink);padding:7px 8px;overflow:hidden;cursor:pointer;display:flex;flex-direction:column;justify-content:space-between}
+.blk:hover{transform:translateY(-1px);box-shadow:0 3px 10px rgba(45,43,43,.16)}
+.blk b{font-size:13px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.blk .t{font-size:10px;color:var(--n700);white-space:nowrap}
+.blk .bar{height:4px;background:color-mix(in srgb,var(--ink) 15%,transparent);margin-top:4px}
+.blk .bar i{display:block;height:100%;background:var(--ink)}
+.blk .c{font-size:10px;font-weight:800;margin-top:3px}
+.blk.past{opacity:.45}
+.blk.live{background:var(--accent);border-color:var(--accent);color:#fff}
+.blk.live .t{color:#fff}
+.blk.live .bar{background:rgba(255,255,255,.3)}.blk.live .bar i{background:#fff}
+.blk.full{background:var(--ink);color:#fff}.blk.full .t{color:var(--n400)}.blk.full .bar{background:rgba(255,255,255,.2)}.blk.full .bar i{background:#fff}
+.now{position:absolute;top:0;bottom:0;width:2px;background:var(--accent);z-index:2}
+.now::before{content:"NOW 5:40";position:absolute;top:-22px;left:-30px;left:4px;background:var(--accent);color:#fff;font-size:9px;font-weight:800;letter-spacing:.08em;padding:2px 5px;white-space:nowrap}
+.legend{display:flex;gap:18px;margin-top:10px;font-size:11px;color:var(--n600)}
+.legend i{display:inline-block;width:10px;height:10px;border:1.5px solid var(--ink);margin-right:6px;vertical-align:-1px}
+
+/* Tournament */
+.tour{margin-top:32px;background:var(--accent);color:#fff;padding:22px 24px;display:grid;grid-template-columns:1fr auto;gap:24px;align-items:end}
+.tour .kicker{color:var(--accent-100)}
+.tour h3{font-size:34px;font-weight:800;letter-spacing:-.03em;line-height:1;margin:6px 0 10px}
+.tour p{font-size:13px;opacity:.92}
+.tour .meter{display:flex;gap:3px;margin-top:14px}
+.tour .meter i{width:12px;height:12px;border:1.5px solid #fff}
+.tour .meter i.f{background:#fff}
+.tour .btn{border-color:#fff;color:#fff}
+.tour .btn.w{background:#fff;color:var(--accent-700)}
+
+/* Right column */
+.queue{border-top:2px solid var(--ink)}
+.pay{padding:14px 0;border-bottom:1px solid var(--rule);display:grid;grid-template-columns:1fr auto;gap:4px 12px}
+.pay b{font-weight:800;font-size:15px}
+.pay .amt{font-weight:800;font-size:15px;text-align:right}
+.pay .meta{font-size:12px;color:var(--n600);grid-column:1/-1}
+.pay .utr{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--surface);padding:1px 5px;color:var(--ink)}
+.pay .row{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.pay .row button{height:36px;border:2px solid var(--ink);background:transparent;font:800 13px Archivo,sans-serif;text-align:left;padding:0 12px;cursor:pointer}
+.pay .row .ok{background:var(--ink);color:#fff}
+.pay.refund b::after{content:"REFUND";font-size:9px;letter-spacing:.1em;background:var(--accent-100);color:var(--accent-700);padding:2px 5px;margin-left:8px;vertical-align:2px}
+.checkin{margin-top:0}
+.ci{display:grid;grid-template-columns:44px 1fr auto;gap:12px;align-items:center;padding:11px 0;border-bottom:1px solid var(--rule)}
+.ci .av{width:40px;height:40px;border-radius:50%;background:var(--illus);border:2px solid var(--ink);display:grid;place-items:center;font-weight:800;font-size:13px}
+.ci b{font-weight:800}.ci small{display:block;font-size:12px;color:var(--n600)}
+.tag{font-size:11px;font-weight:800;padding:3px 8px;border:1.5px solid var(--ink)}
+.tag.in{background:var(--ink);color:#fff}
+.tag.cash{border-color:var(--accent-700);color:var(--accent-700)}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="brand"><b>FindMyHobby</b><span>Club admin · Branch 1</span></div>
+    <nav>
+      <a class="on" href="#">Today</a>
+      <a href="#">Schedule</a>
+      <a href="#">Bookings</a>
+      <a href="#">Payments <span class="badge">6</span></a>
+      <a href="#">Check-in</a>
+      <a href="#">Tournaments</a>
+      <div class="sep"></div>
+      <a href="#">Activities &amp; zones</a>
+      <a href="#">Money</a>
+      <a href="#">People</a>
+      <a href="#">Activity log</a>
+    </nav>
+    <div class="who"><div class="av">OW</div><div><b>Owner account</b><small>Full access</small></div></div>
+  </aside>
+
+  <main>
+    <header>
+      <div><div class="kicker">Thursday 22 Oct · FindMyHobby Club</div><h1>Today</h1></div>
+      <div class="actions">
+        <button class="btn">Scan QR <span>⌘K</span></button>
+        <button class="btn primary">New slot <span>+</span></button>
+      </div>
+    </header>
+
+    <section class="stats">
+      <div class="stat"><div class="kicker">Seats booked</div><div class="v num">142<small> / 210</small></div><div class="s">68% full · 11 slots</div></div>
+      <div class="stat"><div class="kicker">Checked in</div><div class="v num">38</div><div class="s">4 no-shows so far</div></div>
+      <div class="stat"><div class="kicker">Collected today</div><div class="v num">₹14,870</div><div class="s">UPI ₹11,240 · Cash ₹3,630</div></div>
+      <div class="stat hot"><div class="kicker">Waiting for you</div><div class="v num">6</div><div class="s">5 UPI to verify · 1 refund</div></div>
+    </section>
+
+    <div class="cols">
+      <div>
+        <div class="sec"><h2>Zones today</h2><a href="#">Open schedule →</a></div>
+        <div class="timeline">
+          <div class="hours"><div></div><div>
+            <span>7A</span><span>8A</span><span>9A</span><span>10A</span><span>11A</span><span>12P</span><span>1P</span><span>2P</span><span>3P</span><span>4P</span><span>5P</span><span>6P</span><span>7P</span><span>8P</span><span>9P</span>
+          </div></div>
+          <!-- left % = (hour-7)/15*100, width = hours/15*100 -->
+          <div class="zone"><div class="zname"><b>Zone A</b><span>Play</span></div><div class="lane">
+            <div class="blk past" style="left:46.67%;width:13.33%"><div><b>Board Games</b><div class="t">2–4 PM</div></div><div><div class="bar"><i style="width:60%"></i></div><div class="c num">18/30</div></div></div>
+            <div class="blk full" style="left:73.33%;width:6.67%"><div><b>Chess</b><div class="t">6–7 PM</div></div><div><div class="bar"><i style="width:100%"></i></div><div class="c num">30/30</div></div></div>
+            <div class="blk" style="left:80%;width:6.67%"><div><b>Carrom</b><div class="t">7–8 PM</div></div><div><div class="bar"><i style="width:75%"></i></div><div class="c num">12/16</div></div></div>
+            <div class="blk" style="left:86.67%;width:6.67%"><div><b>Quiz</b><div class="t">8–9 PM</div></div><div><div class="bar"><i style="width:40%"></i></div><div class="c num">12/30</div></div></div>
+          </div></div>
+          <div class="zone"><div class="zname"><b>Zone B</b><span>Move</span></div><div class="lane">
+            <div class="blk past" style="left:0%;width:6.67%"><div><b>Yoga</b><div class="t">7–8 AM</div></div><div><div class="bar"><i style="width:90%"></i></div><div class="c num">18/20</div></div></div>
+            <div class="blk past" style="left:6.67%;width:6.67%"><div><b>Zumba</b><div class="t">8–9 AM</div></div><div><div class="bar"><i style="width:70%"></i></div><div class="c num">14/20</div></div></div>
+            <div class="blk live" style="left:66.67%;width:6.67%"><div><b>Dance</b><div class="t">5–6 PM · live</div></div><div><div class="bar"><i style="width:85%"></i></div><div class="c num">17/20</div></div></div>
+            <div class="blk" style="left:80%;width:6.67%"><div><b>Karate</b><div class="t">7–8 PM</div></div><div><div class="bar"><i style="width:30%"></i></div><div class="c num">6/20</div></div></div>
+          </div></div>
+          <div class="zone"><div class="zname"><b>Zone C</b><span>Create</span></div><div class="lane">
+            <div class="blk past" style="left:46.67%;width:6.67%"><div><b>AI Class</b><div class="t">2–3 PM</div></div><div><div class="bar"><i style="width:80%"></i></div><div class="c num">12/15</div></div></div>
+            <div class="blk past" style="left:60%;width:6.67%"><div><b>Video Editing</b><div class="t">4–5 PM</div></div><div><div class="bar"><i style="width:53%"></i></div><div class="c num">8/15</div></div></div>
+            <div class="blk" style="left:73.33%;width:13.33%"><div><b>Painting Workshop</b><div class="t">6–8 PM · with Meera</div></div><div><div class="bar"><i style="width:50%"></i></div><div class="c num">6/12</div></div></div>
+          </div></div>
+          <div class="now" style="left:calc(120px + (100% - 120px) * 0.711)"></div>
+        </div>
+        <div class="legend"><span><i style="background:var(--accent);border-color:var(--accent)"></i>Live now</span><span><i style="background:var(--ink)"></i>Full</span><span><i style="background:var(--illus)"></i>Open</span><span><i style="background:var(--illus);opacity:.45"></i>Finished</span></div>
+
+        <div class="tour">
+          <div>
+            <div class="kicker">Tournament · Knockout · Sun 25 Oct, 11 AM</div>
+            <h3>Sunday Chess Cup</h3>
+            <p>Entry ₹99 · Registration closes Sat 8 PM · Banner is live on the app</p>
+            <div class="meter" title="24 of 30 registered">
+              <i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i><i></i><i></i><i></i><i></i>
+            </div>
+          </div>
+          <div class="actions"><button class="btn">Players · 24/30</button><button class="btn w">Open bracket →</button></div>
+        </div>
+      </div>
+
+      <div>
+        <div><div class="sec"><h2>Verify payments</h2><a href="#">All 6 →</a></div>
+        <div class="queue">
+          <div class="pay"><b>Rahul Verma</b><span class="amt num">₹297</span>
+            <div class="meta">Chess 6–7 PM · 3 seats · UTR <span class="utr">428193650217</span> · 4 min ago</div>
+            <div class="row"><button class="ok">Received</button><button>Not received</button></div></div>
+          <div class="pay"><b>Sneha Iyer</b><span class="amt num">₹199</span>
+            <div class="meta">Painting Workshop 6–8 PM · 1 seat · UTR <span class="utr">428190021984</span> · 11 min ago</div>
+            <div class="row"><button class="ok">Received</button><button>Not received</button></div></div>
+          <div class="pay refund"><b>Arjun Nair</b><span class="amt num" style="color:var(--accent-700)">−₹398</span>
+            <div class="meta">Karate cancelled by member 5h before · 2 seats · send to UPI arjun@okaxis</div>
+            <div class="row"><button class="ok">Refund sent</button><button>Later</button></div></div>
+        </div>
+
+        </div>
+        <div class="checkin">
+          <div class="sec"><h2>Arriving for 6 PM</h2><a href="#">Check-in →</a></div>
+          <div style="border-top:2px solid var(--ink)">
+            <div class="ci"><div class="av">PD</div><div><b>Priya Das</b><small>Chess · 1 seat · FMH-4K9P2X</small></div><span class="tag in">In</span></div>
+            <div class="ci"><div class="av">VK</div><div><b>Vikram K.</b><small>Chess · 2 seats · FMH-7RT3MA</small></div><span class="tag cash">Collect ₹198</span></div>
+            <div class="ci"><div class="av">AM</div><div><b>Ananya M.</b><small>Painting · 1 seat · FMH-Q2W8NZ</small></div><span class="tag">Due</span></div>
+            <div class="ci"><div class="av">SR</div><div><b>Sameer R.</b><small>Chess · 1 seat · FMH-H6YB4C</small></div><span class="tag in">In</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

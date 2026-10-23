@@ -6,8 +6,10 @@ import { activities, bookings, categories, sessions, slots, tournaments, users, 
 import { AppError, bookSlot, cancelBooking, submitUtr, windowEnd } from '../booking.ts';
 import { bearer, login, logout, requireUser } from '../auth.ts';
 import { parse } from '../validate.ts';
+import { getBracket, register, unregister } from '../tournament.ts';
 import type { Deps } from '../app.ts';
 
+const tourId = z.object({ id: z.coerce.number().int().positive() });
 const ref = z.object({ ref: z.string().regex(/^FMH-[A-Z0-9]{6}$/) });
 
 export const memberRoutes = (deps: Deps) => async (app: FastifyInstance) => {
@@ -110,6 +112,22 @@ export const memberRoutes = (deps: Deps) => async (app: FastifyInstance) => {
   app.post('/bookings/:ref/cancel', async (req) => {
     const user = await requireUser(req);
     await cancelBooking(user.id, parse(ref, req.params).ref);
+    return { ok: true };
+  });
+
+  /** Public bracket: anyone can watch the draw and live results. */
+  app.get('/tournaments/:id', async (req) => getBracket(parse(tourId, req.params).id));
+
+  app.post('/tournaments/:id/register', async (req) => {
+    const user = await requireUser(req);
+    if (!user.phone) throw new AppError('PHONE_REQUIRED', 409); // staff need a way to reach players on the day
+    await register(user.id, parse(tourId, req.params).id);
+    return { ok: true };
+  });
+
+  app.delete('/tournaments/:id/register', async (req) => {
+    const user = await requireUser(req);
+    await unregister(user.id, parse(tourId, req.params).id);
     return { ok: true };
   });
 };

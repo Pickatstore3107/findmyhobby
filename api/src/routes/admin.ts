@@ -2,10 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import { and, asc, desc, eq, gte, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/index.ts';
-import { activities, auditLog, bookings, categories, payments, slots, users, zones } from '../db/schema.ts';
+import { activities, auditLog, bookings, categories, payments, slots, tournamentPlayers, tournaments, users, zones } from '../db/schema.ts';
 import { AppError, cancelSlot, checkIn, createSlot, verifyPayment } from '../booking.ts';
 import { requireUser } from '../auth.ts';
 import { parse } from '../validate.ts';
+import { generateDraw, setWinner } from '../tournament.ts';
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 const range = z.object({ from: z.coerce.date(), to: z.coerce.date() }).refine((r) => r.to > r.from && +r.to - +r.from <= 93 * 864e5);
@@ -128,6 +129,56 @@ export async function adminRoutes(app: FastifyInstance) {
     const admin = await requireUser(req, 'manager');
     const { approve } = parse(z.object({ approve: z.boolean() }), req.body);
     await verifyPayment(admin.id, parse(idParam, req.params).id, approve);
+    return { ok: true };
+  });
+
+  // ── Manager: tournaments ──
+  const tournamentBody = z.object({
+    title: z.string().trim().min(1).max(80), activityId: z.number().int().positive(), startsAt: z.coerce.date(),
+    entryFee: z.number().int().min(0).max(100_000_00), maxPlayers: z.number().int().min(2).max(30),
+    bannerKey: z.string().max(255).regex(/^tournaments\/[\w./-]+$/).nullable().optional(),
+    status: z.enum(['draft', 'open', 'closed']).optional(), // live/finished happen only through the draw and results
+  });
+
+  app.post('/tournaments', async (req) => {
+    const admin = await requireUser(req, 'manager');
+    const body = parse(tournamentBody, req.body);
+    const [res] = await db.insert(tournaments).values(body);
+    await db.insert(auditLog).values({ actorId: admin.id, action: 'tournament.create', entity: 'tournament', entityId: res.insertId, data: body });
+    return { id: res.insertId };
+  });
+
+  app.patch('/tournaments/:id', async (req) => {
+    const admin = await requireUser(req, 'manager');
+    const { id } = parse(idParam, req.params);
+    const body = parse(tournamentBody.partial(), req.body);
+    const [tour] = await db.select().from(tournaments).where(eq(tournaments.id, id));
+    if (!tour) throw new AppError('TOURNAMENT_NOT_FOUND', 404);
+    if (tour.status === 'live' || tour.status === 'finished') throw new AppError('TOURNAMENT_ALREADY_STARTED', 409);
+    const [{ n }] = await db.select({ n: sql<number>`COUNT(*)` }).from(tournamentPlayers).where(eq(tournamentPlayers.tournamentId, id));
+    if (body.maxPlayers !== undefined && body.maxPlayers < n) throw new AppError('BELOW_REGISTERED_COUNT', 409);
+    await db.update(tournaments).set(body).where(eq(tournaments.id, id));
+    await db.insert(auditLog).values({ actorId: admin.id, action: 'tournament.update', entity: 'tournament', entityId: id, data: body });
+    return { ok: true };
+  });
+
+  app.get('/tournaments', async (req) => {
+    await requireUser(req, 'desk');
+    return db.select({ tournament: tournaments, players: sql<number>`(SELECT COUNT(*) FROM tournament_players tp WHERE tp.tournament_id = ${tournaments.id})` })
+      .from(tournaments).orderBy(desc(tournaments.startsAt)).limit(100);
+  });
+
+  app.post('/tournaments/:id/draw', async (req) => {
+    const admin = await requireUser(req, 'manager');
+    await generateDraw(admin.id, parse(idParam, req.params).id);
+    return { ok: true };
+  });
+
+  /** Desk staff run the matches on the day, so they can record results. winnerId null = undo. */
+  app.post('/matches/:id/winner', async (req) => {
+    const staff = await requireUser(req, 'desk');
+    const { winnerId } = parse(z.object({ winnerId: z.number().int().positive().nullable() }), req.body);
+    await setWinner(staff.id, parse(idParam, req.params).id, winnerId);
     return { ok: true };
   });
 
