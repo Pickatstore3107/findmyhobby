@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.ts';
-import { pool } from '../src/db/index.ts';
+import { client } from '../src/db/index.ts';
 
 process.env.OWNER_EMAILS = 'owner@fmh.in';
 // Google is replaced by a fake that trusts "google:<email>" tokens; the real check is covered by jose's own tests.
@@ -27,7 +27,7 @@ beforeAll(async () => {
   member = await loginAs('aanya@gmail.com');
   desk = await loginAs('desk@fmh.in');
 });
-afterAll(async () => { await app.close(); await pool.end(); });
+afterAll(async () => { await app.close(); await client.end(); });
 
 describe('auth and roles', () => {
   it('owner email becomes owner; others are members', async () => {

@@ -84,9 +84,9 @@ export async function adminRoutes(app: FastifyInstance) {
   app.post('/activities', async (req) => {
     const admin = await requireUser(req, 'manager');
     const body = parse(activityBody, req.body);
-    const [res] = await db.insert(activities).values(body);
-    await db.insert(auditLog).values({ actorId: admin.id, action: 'activity.create', entity: 'activity', entityId: res.insertId, data: body });
-    return { id: res.insertId };
+    const [res] = await db.insert(activities).values(body).returning({ id: activities.id });
+    await db.insert(auditLog).values({ actorId: admin.id, action: 'activity.create', entity: 'activity', entityId: res.id, data: body });
+    return { id: res.id };
   });
 
   app.patch('/activities/:id', async (req) => {
@@ -125,15 +125,15 @@ export async function adminRoutes(app: FastifyInstance) {
 
   app.post('/zones', async (req) => {
     await requireUser(req, 'manager');
-    const [res] = await db.insert(zones).values(parse(z.object({ name: z.string().trim().min(1).max(50) }), req.body));
-    return { id: res.insertId };
+    const [res] = await db.insert(zones).values(parse(z.object({ name: z.string().trim().min(1).max(50) }), req.body)).returning({ id: zones.id });
+    return { id: res.id };
   });
 
   app.post('/categories', async (req) => {
     await requireUser(req, 'manager');
     const body = parse(z.object({ name: z.string().trim().min(1).max(30), emoji: z.string().min(1).max(8), sort: z.number().int().min(0).max(100) }), req.body);
-    const [res] = await db.insert(categories).values(body);
-    return { id: res.insertId };
+    const [res] = await db.insert(categories).values(body).returning({ id: categories.id });
+    return { id: res.id };
   });
 
   /** Payment queue: UPI to verify, pay-at-venue to collect, refunds owed (negative amounts) to pay out. */
@@ -166,9 +166,9 @@ export async function adminRoutes(app: FastifyInstance) {
   app.post('/tournaments', async (req) => {
     const admin = await requireUser(req, 'manager');
     const body = parse(tournamentBody, req.body);
-    const [res] = await db.insert(tournaments).values(body);
-    await db.insert(auditLog).values({ actorId: admin.id, action: 'tournament.create', entity: 'tournament', entityId: res.insertId, data: body });
-    return { id: res.insertId };
+    const [res] = await db.insert(tournaments).values(body).returning({ id: tournaments.id });
+    await db.insert(auditLog).values({ actorId: admin.id, action: 'tournament.create', entity: 'tournament', entityId: res.id, data: body });
+    return { id: res.id };
   });
 
   app.patch('/tournaments/:id', async (req) => {
@@ -178,7 +178,7 @@ export async function adminRoutes(app: FastifyInstance) {
     const [tour] = await db.select().from(tournaments).where(eq(tournaments.id, id));
     if (!tour) throw new AppError('TOURNAMENT_NOT_FOUND', 404);
     if (tour.status === 'live' || tour.status === 'finished') throw new AppError('TOURNAMENT_ALREADY_STARTED', 409);
-    const [{ n }] = await db.select({ n: sql<number>`COUNT(*)` }).from(tournamentPlayers).where(eq(tournamentPlayers.tournamentId, id));
+    const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(tournamentPlayers).where(eq(tournamentPlayers.tournamentId, id));
     if (body.maxPlayers !== undefined && body.maxPlayers < n) throw new AppError('BELOW_REGISTERED_COUNT', 409);
     await db.update(tournaments).set(body).where(eq(tournaments.id, id));
     await db.insert(auditLog).values({ actorId: admin.id, action: 'tournament.update', entity: 'tournament', entityId: id, data: body });
@@ -187,7 +187,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   app.get('/tournaments', async (req) => {
     await requireUser(req, 'desk');
-    return db.select({ tournament: tournaments, players: sql<number>`(SELECT COUNT(*) FROM tournament_players tp WHERE tp.tournament_id = tournaments.id)` })
+    return db.select({ tournament: tournaments, players: sql<number>`(SELECT count(*)::int FROM tournament_players tp WHERE tp.tournament_id = tournaments.id)` })
       .from(tournaments).orderBy(desc(tournaments.startsAt)).limit(100);
   });
 
@@ -210,10 +210,10 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get('/revenue', async (req) => {
     await requireUser(req, 'owner');
     const { from, to } = parse(range, req.query);
-    const day = sql<string>`DATE_FORMAT(CONVERT_TZ(${payments.verifiedAt}, '+00:00', '+05:30'), '%Y-%m-%d')`;
+    const day = sql<string>`to_char(${payments.verifiedAt} AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD')`;
     return db.select({
-      day, collected: sql<number>`SUM(GREATEST(${payments.amount}, 0))`,
-      refunded: sql<number>`-SUM(LEAST(${payments.amount}, 0))`, net: sql<number>`SUM(${payments.amount})`,
+      day, collected: sql<number>`SUM(GREATEST(${payments.amount}, 0))::int`,
+      refunded: sql<number>`(-SUM(LEAST(${payments.amount}, 0)))::int`, net: sql<number>`SUM(${payments.amount})::int`,
     }).from(payments).where(and(eq(payments.status, 'verified'), gte(payments.verifiedAt, from), lt(payments.verifiedAt, to)))
       .groupBy(day).orderBy(day);
   });
@@ -222,7 +222,7 @@ export async function adminRoutes(app: FastifyInstance) {
     await requireUser(req, 'owner');
     const { q } = parse(z.object({ q: z.string().trim().max(100).default('') }), req.query);
     return db.select({ id: users.id, name: users.name, email: users.email, phone: users.phone, role: users.role, blocked: users.blocked })
-      .from(users).where(q ? sql`${users.name} LIKE ${'%' + q + '%'} OR ${users.email} LIKE ${'%' + q + '%'} OR ${users.phone} LIKE ${'%' + q + '%'}` : undefined)
+      .from(users).where(q ? sql`${users.name} ILIKE ${'%' + q + '%'} OR ${users.email} ILIKE ${'%' + q + '%'} OR ${users.phone} ILIKE ${'%' + q + '%'}` : undefined)
       .orderBy(desc(users.id)).limit(100);
   });
 

@@ -1,11 +1,11 @@
-# Local development database only. Production uses AWS RDS.
+# Local development database only. Production uses Supabase (PostgreSQL, Mumbai).
 services:
-  mysql:
-    image: mysql:8.4
+  postgres:
+    image: postgres:17
     environment:
-      MYSQL_ROOT_PASSWORD: localdev
-      MYSQL_DATABASE: findmyhobby
-    ports: ["3307:3306"]
-    volumes: [mysql:/var/lib/mysql]
+      POSTGRES_PASSWORD: localdev
+      POSTGRES_DB: findmyhobby
+    ports: ["5433:5432"]
+    volumes: [pg:/var/lib/postgresql/data]
 volumes:
-  mysql:
+  pg:

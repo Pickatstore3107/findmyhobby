@@ -35,7 +35,7 @@ export const memberRoutes = (deps: Deps) => async (app: FastifyInstance) => {
   app.get('/catalog', async () => ({
     categories: await db.select().from(categories).orderBy(asc(categories.sort)),
     activities: await db.select().from(activities).where(eq(activities.active, true)),
-    tournaments: await db.select({ ...getTableColumns(tournaments), players: sql<number>`(SELECT COUNT(*) FROM tournament_players tp WHERE tp.tournament_id = tournaments.id)` })
+    tournaments: await db.select({ ...getTableColumns(tournaments), players: sql<number>`(SELECT count(*)::int FROM tournament_players tp WHERE tp.tournament_id = tournaments.id)` })
       .from(tournaments).where(inArray(tournaments.status, ['open', 'closed', 'live'])).orderBy(asc(tournaments.startsAt)),
     // Where members pay by UPI. Set UPI_ID / UPI_NAME on the server; the app opens any UPI app with these filled in.
     payment: { online: onlineEnabled(), upiId: process.env.UPI_ID ?? '', payeeName: process.env.UPI_NAME ?? 'FindMyHobby Club' },

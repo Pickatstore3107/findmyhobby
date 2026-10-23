@@ -53,21 +53,18 @@ importers:
       '@fastify/rate-limit':
         specifier: ^11.2.1
         version: 11.2.1
-      aws-ssl-profiles:
-        specifier: ^1.1.2
-        version: 1.1.2
       drizzle-orm:
         specifier: ^0.45.4
-        version: 0.45.4(mysql2@3.24.6(@types/node@26.6.5))
+        version: 0.45.4(mysql2@3.24.6(@types/node@26.6.5))(postgres@3.4.9)
       fastify:
         specifier: ^5.12.7
         version: 5.12.7
       jose:
         specifier: ^6.2.13
         version: 6.2.13
-      mysql2:
-        specifier: ^3.24.6
-        version: 3.24.6(@types/node@26.6.5)
+      postgres:
+        specifier: ^3.4.9
+        version: 3.4.9
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
@@ -4264,6 +4261,10 @@ packages:
     resolution: {integrity: sha512-YUbWYCgErwnMAVkjUnYa+KlMBzGpHwiIt/DE7f0G33AuX2LH9UcTk6KgWxd3zRU+pN3u/C+Xl3EnMLM4Hea7Sg==}
     engines: {node: ^10 || ^12 || >=14}
 
+  postgres@3.4.9:
+    resolution: {integrity: sha512-GD3qdB0x1z9xgFI6cdRD6xu2Sp2WCOEoe3mtnyB5Ee0XrrL5Pe+e4CCnJrRMnL1zYtRDZmQQVbvOttLnKDLnaw==}
+    engines: {node: '>=12'}
+
   prelude-ls@1.2.1:
     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
     engines: {node: '>= 0.8.0'}
@@ -7476,7 +7477,8 @@ snapshots:
       '@fastify/error': 4.2.1
       fastq: 1.20.3
 
-  aws-ssl-profiles@1.1.2: {}
+  aws-ssl-profiles@1.1.2:
+    optional: true
 
   babel-plugin-polyfill-corejs2@0.4.17(@babel/core@7.29.7):
     dependencies:
@@ -7881,9 +7883,10 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.23.15
 
-  drizzle-orm@0.45.4(mysql2@3.24.6(@types/node@26.6.5)):
+  drizzle-orm@0.45.4(mysql2@3.24.6(@types/node@26.6.5))(postgres@3.4.9):
     optionalDependencies:
       mysql2: 3.24.6(@types/node@26.6.5)
+      postgres: 3.4.9
 
   dunder-proto@1.0.1:
     dependencies:
@@ -8681,6 +8684,7 @@ snapshots:
   generate-function@2.3.1:
     dependencies:
       is-property: 1.0.2
+    optional: true
 
   generator-function@2.0.1: {}
 
@@ -8805,6 +8809,7 @@ snapshots:
   iconv-lite@0.7.3:
     dependencies:
       safer-buffer: 2.1.2
+    optional: true
 
   ignore@5.3.2: {}
 
@@ -8920,7 +8925,8 @@ snapshots:
 
   is-number@7.0.0: {}
 
-  is-property@1.0.2: {}
+  is-property@1.0.2:
+    optional: true
 
   is-regex@1.2.1:
     dependencies:
@@ -9133,7 +9139,8 @@ snapshots:
     dependencies:
       chalk: 2.4.2
 
-  long@5.3.2: {}
+  long@5.3.2:
+    optional: true
 
   loose-envify@1.4.0:
     dependencies:
@@ -9147,7 +9154,8 @@ snapshots:
     dependencies:
       yallist: 3.1.1
 
-  lru.min@1.1.5: {}
+  lru.min@1.1.5:
+    optional: true
 
   magic-string@1.4.3:
     dependencies:
@@ -9386,10 +9394,12 @@ snapshots:
       lru.min: 1.1.5
       named-placeholders: 1.1.6
       sql-escaper: 1.5.2
+    optional: true
 
   named-placeholders@1.1.6:
     dependencies:
       lru.min: 1.1.5
+    optional: true
 
   nanoid@3.3.20: {}
 
@@ -9628,6 +9638,8 @@ snapshots:
       nanoid: 3.3.20
       picocolors: 1.1.1
       source-map-js: 1.2.2
+
+  postgres@3.4.9: {}
 
   prelude-ls@1.2.1: {}
 
@@ -9983,7 +9995,8 @@ snapshots:
 
   safe-stable-stringify@2.5.0: {}
 
-  safer-buffer@2.1.2: {}
+  safer-buffer@2.1.2:
+    optional: true
 
   sandbox-cli-detector@0.2.0: {}
 
@@ -10129,7 +10142,8 @@ snapshots:
 
   split2@4.2.0: {}
 
-  sql-escaper@1.5.2: {}
+  sql-escaper@1.5.2:
+    optional: true
 
   stable-hash@0.0.5: {}
 

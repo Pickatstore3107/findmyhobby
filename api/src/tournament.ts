@@ -3,7 +3,7 @@ import { randomInt } from 'node:crypto';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { db, type Tx } from './db/index.ts';
 import { matches, payments, tournamentPlayers, tournaments, users } from './db/schema.ts';
-import { AppError, audit, tx } from './booking.ts';
+import { AppError, audit, isDup, tx } from './booking.ts';
 
 const lockTournament = async (t: Tx, id: number) => {
   const [row] = await t.select().from(tournaments).where(eq(tournaments.id, id)).for('update');
@@ -16,13 +16,16 @@ export function register(userId: number, tournamentId: number) {
   return tx(async (t) => {
     const tour = await lockTournament(t, tournamentId);
     if (tour.status !== 'open') throw new AppError('REGISTRATION_CLOSED', 409);
-    const [{ n }] = await t.select({ n: sql<number>`COUNT(*)` }).from(tournamentPlayers).where(eq(tournamentPlayers.tournamentId, tournamentId));
+    const [{ n }] = await t.select({ n: sql<number>`count(*)::int` }).from(tournamentPlayers).where(eq(tournamentPlayers.tournamentId, tournamentId));
     if (n >= tour.maxPlayers) throw new AppError('TOURNAMENT_FULL', 409);
-    const [res] = await t.insert(tournamentPlayers).values({ tournamentId, userId }).catch((e) => {
-      throw (e?.cause ?? e)?.code === 'ER_DUP_ENTRY' ? new AppError('ALREADY_REGISTERED', 409) : e;
-    });
-    if (tour.entryFee > 0) await t.insert(payments).values({ tournamentPlayerId: res.insertId, method: 'venue', amount: tour.entryFee, status: 'pending' });
-    return res.insertId;
+    // Checked first: in PostgreSQL a failed insert would abort the whole transaction.
+    const [already] = await t.select({ id: tournamentPlayers.id }).from(tournamentPlayers)
+      .where(and(eq(tournamentPlayers.tournamentId, tournamentId), eq(tournamentPlayers.userId, userId)));
+    if (already) throw new AppError('ALREADY_REGISTERED', 409);
+    const [res] = await t.insert(tournamentPlayers).values({ tournamentId, userId }).returning({ id: tournamentPlayers.id })
+      .catch((e) => { throw isDup(e, 'one_entry_per_user') ? new AppError('ALREADY_REGISTERED', 409) : e; });
+    if (tour.entryFee > 0) await t.insert(payments).values({ tournamentPlayerId: res.id, method: 'venue', amount: tour.entryFee, status: 'pending' });
+    return res.id;
   });
 }
 

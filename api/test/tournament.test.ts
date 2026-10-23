@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
-import { db, pool } from '../src/db/index.ts';
+import { client, db } from '../src/db/index.ts';
 import { activities, categories, matches, tournaments, users } from '../src/db/schema.ts';
 import { generateDraw, getBracket, register, setWinner, unregister } from '../src/tournament.ts';
 
@@ -11,8 +11,8 @@ const newUsers = async (n: number) => {
   return (await db.select({ id: users.id }).from(users)).slice(-n).map((u) => u.id);
 };
 const newTournament = async (maxPlayers = 30) => {
-  const [res] = await db.insert(tournaments).values({ title: `Cup ${++seq}`, activityId: activity, startsAt: new Date('2026-10-25T05:30:00Z'), maxPlayers, status: 'open' });
-  return res.insertId;
+  const [res] = await db.insert(tournaments).values({ title: `Cup ${++seq}`, activityId: activity, startsAt: new Date('2026-10-25T05:30:00Z'), maxPlayers, status: 'open' }).returning();
+  return res.id;
 };
 const withPlayers = async (n: number) => {
   const id = await newTournament();
@@ -24,11 +24,11 @@ const roundOf = async (id: number, round: number) =>
 
 beforeAll(async () => {
   [admin] = await newUsers(1);
-  const [c] = await db.insert(categories).values({ name: 'Tour', emoji: '🏆' });
-  const [a] = await db.insert(activities).values({ name: 'Tour Chess', categoryId: c.insertId, defaultPrice: 0, defaultCapacity: 30 });
-  activity = a.insertId;
+  const [c] = await db.insert(categories).values({ name: 'Tour', emoji: '🏆' }).returning();
+  const [a] = await db.insert(activities).values({ name: 'Tour Chess', categoryId: c.id, defaultPrice: 0, defaultCapacity: 30 }).returning();
+  activity = a.id;
 });
-afterAll(() => pool.end());
+afterAll(() => client.end());
 
 describe('registration', () => {
   it('40 people racing for 30 places: exactly 30 get in', async () => {

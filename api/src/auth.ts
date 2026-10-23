@@ -32,7 +32,7 @@ const hash = (token: string) => createHash('sha256').update(token).digest('hex')
 export async function login(profile: GoogleProfile) {
   const owners = (process.env.OWNER_EMAILS ?? '').toLowerCase().split(',');
   await db.insert(users).values({ googleSub: profile.sub, email: profile.email, name: profile.name })
-    .onDuplicateKeyUpdate({ set: { email: profile.email } });
+    .onConflictDoUpdate({ target: users.googleSub, set: { email: profile.email } });
   const [user] = await db.select().from(users).where(eq(users.googleSub, profile.sub));
   if (user.blocked) throw new AppError('ACCOUNT_BLOCKED', 403);
   if (owners.includes(user.email.toLowerCase()) && user.role !== 'owner') {

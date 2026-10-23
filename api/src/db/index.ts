@@ -1,13 +1,12 @@
-import { drizzle } from 'drizzle-orm/mysql2';
-import mysql from 'mysql2/promise';
-import awsCaBundle from 'aws-ssl-profiles';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
 import * as schema from './schema.ts';
 
-// timezone 'Z' keeps every DATETIME in UTC; the app converts to IST only for display.
-// On AWS (DB_SSL=rds) the connection is encrypted and the server certificate is checked against Amazon's RDS authorities.
-export const pool = mysql.createPool({
-  uri: process.env.DATABASE_URL, timezone: 'Z', connectionLimit: 10,
-  ...(process.env.DB_SSL === 'rds' && { ssl: { ...awsCaBundle, rejectUnauthorized: true } }),
-});
-export const db = drizzle(pool, { schema, mode: 'default' });
+// Supabase connections are encrypted. With DB_CA (Supabase's CA certificate, PEM) the server's identity is also verified.
+const ssl = process.env.DB_CA ? { ca: process.env.DB_CA.replace(/\\n/g, '\n'), rejectUnauthorized: true }
+  : process.env.DB_SSL === 'require' ? 'require' as const : false;
+
+// prepare: false keeps it compatible with Supabase's connection pooler.
+export const client = postgres(process.env.DATABASE_URL!, { max: 10, prepare: false, ssl });
+export const db = drizzle(client, { schema });
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];

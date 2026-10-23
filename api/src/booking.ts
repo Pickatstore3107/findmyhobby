@@ -22,14 +22,16 @@ export const windowEnd = (now: Date) =>
 const REF_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no 0/O/1/I, easy to read aloud at the desk
 const newRef = () => 'FMH-' + Array.from({ length: 6 }, () => REF_CHARS[randomInt(REF_CHARS.length)]).join('');
 
-const mysqlError = (e: unknown) => ((e as any)?.cause ?? e) as { code?: string; errno?: number; message?: string };
-const isDup = (e: unknown, key: string) => mysqlError(e).code === 'ER_DUP_ENTRY' && !!mysqlError(e).message?.includes(key);
+// PostgreSQL error details sit on the driver error, which Drizzle wraps as `cause`.
+export const pgError = (e: unknown) => ((e as any)?.cause ?? e) as { code?: string; constraint_name?: string };
+/** True when a unique rule (named after `key`) rejected the write. */
+export const isDup = (e: unknown, key: string) => pgError(e).code === '23505' && !!pgError(e).constraint_name?.includes(key);
 
-/** Runs a transaction, retrying the rare InnoDB deadlock instead of failing the user. */
+/** Runs a transaction, retrying the rare deadlock or serialization conflict instead of failing the user. */
 export async function tx<T>(fn: (t: Tx) => Promise<T>): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try { return await db.transaction(fn); }
-    catch (e) { if (mysqlError(e).errno !== 1213 || attempt === 3) throw e; }
+    catch (e) { if (!['40P01', '40001'].includes(pgError(e).code ?? '') || attempt === 3) throw e; }
   }
 }
 
@@ -55,7 +57,7 @@ type SlotInput = { activityId: number; zoneId: number; startsAt: Date; endsAt: D
 const toMinute = (d: Date) => new Date(Math.floor(+d / 60_000) * 60_000);
 
 export function createSlot(adminId: number, raw: SlotInput) {
-  // Slots start and end on whole minutes, so stored times match exactly (the database keeps no milliseconds).
+  // Slots start and end on whole minutes, so back-to-back slots line up exactly.
   const input = { ...raw, startsAt: toMinute(raw.startsAt), endsAt: toMinute(raw.endsAt) };
   if (input.endsAt <= input.startsAt) throw new AppError('INVALID_TIMES');
   return tx(async (t) => {
@@ -67,9 +69,9 @@ export function createSlot(adminId: number, raw: SlotInput) {
       eq(slots.zoneId, input.zoneId), eq(slots.cancelled, false),
       lt(slots.startsAt, input.endsAt), gt(slots.endsAt, input.startsAt)));
     if (clash) throw new AppError('ZONE_CLASH', 409, clash); // tells the admin what is already there
-    const [res] = await t.insert(slots).values(input);
-    await audit(t, adminId, 'slot.create', 'slot', res.insertId, input);
-    return res.insertId;
+    const [res] = await t.insert(slots).values(input).returning({ id: slots.id });
+    await audit(t, adminId, 'slot.create', 'slot', res.id, input);
+    return res.id;
   });
 }
 
@@ -82,13 +84,14 @@ export async function bookSlot({ userId, slotId, seats, method, idempotencyKey, 
   try {
     return await tx(async (t) => {
       // The seat check and the seat grab are one statement: it succeeds only if the seats are still free.
-      const [res] = await t.update(slots)
+      const taken = await t.update(slots)
         .set({ bookedSeats: sql`${slots.bookedSeats} + ${seats}` })
         .where(and(eq(slots.id, slotId), eq(slots.cancelled, false),
           gt(slots.startsAt, now), lte(slots.startsAt, windowEnd(now)),
-          sql`${slots.bookedSeats} + ${seats} <= ${slots.capacity}`));
+          sql`${slots.bookedSeats} + ${seats} <= ${slots.capacity}`))
+        .returning({ id: slots.id });
       const [slot] = await t.select().from(slots).where(eq(slots.id, slotId));
-      if (res.affectedRows === 0) {
+      if (!taken.length) {
         if (!slot || slot.cancelled) throw new AppError('SLOT_NOT_FOUND', 404);
         if (slot.startsAt <= now || slot.startsAt > windowEnd(now)) throw new AppError('SLOT_NOT_BOOKABLE', 409);
         throw new AppError('NOT_ENOUGH_SEATS', 409);
@@ -99,9 +102,9 @@ export async function bookSlot({ userId, slotId, seats, method, idempotencyKey, 
         method, status: method === 'venue' ? 'confirmed' as const : 'pending' as const,
         holdUntil: method === 'venue' ? null : new Date(now.getTime() + (method === 'gateway' ? ONLINE_HOLD_MS : HOLD_MS)),
       };
-      const [ins] = await t.insert(bookings).values(booking);
-      if (method === 'venue') await t.insert(payments).values({ bookingId: ins.insertId, method, amount: booking.amount, status: 'pending' });
-      return { id: ins.insertId, ...booking };
+      const [ins] = await t.insert(bookings).values(booking).returning({ id: bookings.id });
+      if (method === 'venue') await t.insert(payments).values({ bookingId: ins.id, method, amount: booking.amount, status: 'pending' });
+      return { id: ins.id, ...booking };
     });
   } catch (e) {
     if (isDup(e, 'one_active_booking_per_slot')) throw new AppError('ALREADY_BOOKED', 409);

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { createHmac } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { buildApp } from '../src/app.ts';
-import { db, pool } from '../src/db/index.ts';
+import { client, db } from '../src/db/index.ts';
 import { activities, bookings, categories, payments, slots, users, zones } from '../src/db/schema.ts';
 import { createSlot, expireHolds } from '../src/booking.ts';
 
@@ -50,14 +50,14 @@ const login = async (email: string) => (await call('POST', '/auth/google', { bod
 beforeAll(async () => {
   await login('owner@fmh.in');
   owner = (await db.select().from(users).where(eq(users.email, 'owner@fmh.in')))[0].id;
-  const [c] = await db.insert(categories).values({ name: 'Online', emoji: '💳' });
-  const [z] = await db.insert(zones).values({ name: 'Zone Pay' });
-  const [a] = await db.insert(activities).values({ name: 'Pay Yoga', categoryId: c.insertId, defaultPrice: 19900, defaultCapacity: 10 });
-  activity = a.insertId; zone = z.insertId;
+  const [c] = await db.insert(categories).values({ name: 'Online', emoji: '💳' }).returning();
+  const [z] = await db.insert(zones).values({ name: 'Zone Pay' }).returning();
+  const [a] = await db.insert(activities).values({ name: 'Pay Yoga', categoryId: c.id, defaultPrice: 19900, defaultCapacity: 10 }).returning();
+  activity = a.id; zone = z.id;
   member = await login('payer@test.in');
 });
 beforeEach(() => { razorpayDown = false; refunds.length = 0; });
-afterAll(async () => { await app.close(); await pool.end(); });
+afterAll(async () => { await app.close(); await client.end(); });
 
 describe('starting an online payment', () => {
   it('creates a Razorpay order for the exact amount and holds seats for 15 minutes', async () => {

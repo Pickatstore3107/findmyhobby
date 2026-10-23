@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { db, pool } from '../src/db/index.ts';
+import { client, db } from '../src/db/index.ts';
 import { activities, bookings, categories, payments, slots, users, zones } from '../src/db/schema.ts';
 import { bookSlot, cancelBooking, createSlot, expireHolds, submitUtr, verifyPayment, windowEnd } from '../src/booking.ts';
 
@@ -22,20 +22,20 @@ const seatsOf = async (id: number) => (await db.select().from(slots).where(eq(sl
 
 beforeAll(async () => {
   [admin] = await newUsers(1);
-  const [c] = await db.insert(categories).values({ name: 'Play', emoji: '🏆' });
-  const [z] = await db.insert(zones).values({ name: 'Zone A' });
-  const [a] = await db.insert(activities).values({ name: 'Chess', categoryId: c.insertId, defaultPrice: 9900, defaultCapacity: 30 });
-  zone = z.insertId; activity = a.insertId;
+  const [c] = await db.insert(categories).values({ name: 'Play', emoji: '🏆' }).returning();
+  const [z] = await db.insert(zones).values({ name: 'Zone A' }).returning();
+  const [a] = await db.insert(activities).values({ name: 'Chess', categoryId: c.id, defaultPrice: 9900, defaultCapacity: 30 }).returning();
+  zone = z.id; activity = a.id;
 });
-afterAll(() => pool.end());
+afterAll(() => client.end());
 
 describe('scheduling', () => {
   it('blocks overlapping slots in the same zone, allows back-to-back and other zones', async () => {
     await slot(24);
     await expect(slot(24.5)).rejects.toThrow('ZONE_CLASH');
     await expect(slot(25)).resolves.toBeTypeOf('number');
-    const [z2] = await db.insert(zones).values({ name: 'Zone B' });
-    await expect(slot(24, 30, z2.insertId)).resolves.toBeTypeOf('number');
+    const [z2] = await db.insert(zones).values({ name: 'Zone B' }).returning();
+    await expect(slot(24, 30, z2.id)).resolves.toBeTypeOf('number');
   });
 
   it('two admins creating the same time at once: exactly one wins', async () => {

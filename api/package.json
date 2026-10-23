@@ -17,11 +17,10 @@
     "@fastify/cors": "^11.3.1",
     "@fastify/helmet": "^13.2.0",
     "@fastify/rate-limit": "^11.2.1",
-    "aws-ssl-profiles": "^1.1.2",
     "drizzle-orm": "^0.45.4",
     "fastify": "^5.12.7",
     "jose": "^6.2.13",
-    "mysql2": "^3.24.6",
+    "postgres": "^3.4.9",
     "tsx": "^4.23.15",
     "zod": "^4.6.7"
   },

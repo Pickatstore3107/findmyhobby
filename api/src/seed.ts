@@ -1,5 +1,5 @@
 // Fills the LOCAL database with sample data for development. Refuses to run against anything but localhost.
-import { db, pool } from './db/index.ts';
+import { client, db } from './db/index.ts';
 import { activities, categories, users, zones } from './db/schema.ts';
 import { bookSlot, createSlot, submitUtr } from './booking.ts';
 
@@ -8,8 +8,7 @@ if (!/@(127\.0\.0\.1|localhost)[:/]/.test(process.env.DATABASE_URL ?? '')) throw
 const IST = 5.5 * 3600e3;
 const istMidnight = (dayOffset: number) => new Date(Math.floor((Date.now() + IST) / 864e5) * 864e5 - IST + dayOffset * 864e5);
 
-const [{ n }] = (await pool.query('SELECT COUNT(*) AS n FROM zones'))[0] as any;
-if (n > 0) { console.log('Already seeded.'); process.exit(0); }
+if ((await db.select().from(zones)).length > 0) { console.log('Already seeded.'); process.exit(0); }
 
 await db.insert(categories).values([
   { name: 'Play', emoji: '🏆', sort: 1 }, { name: 'Move', emoji: '🧘', sort: 2 }, { name: 'Create', emoji: '🎨', sort: 3 },
@@ -55,4 +54,4 @@ for (let d = 0; d < 7; d++) {
   }
 }
 console.log('Seeded. Sign in to the admin as owner@findmyhobby.local');
-await pool.end();
+await client.end();
