@@ -1,10 +1,10 @@
-# Caddy gets and renews HTTPS certificates automatically. DOMAIN comes from /etc/caddy/caddy.env.
+# Caddy gets and renews HTTPS certificates automatically (Let's Encrypt).
 {
-	email {$ADMIN_EMAIL}
+	email akshaybouroju@gmail.com
 }
 
 # Website pages, the admin console (/console) and the API for the console (/api)
-{$DOMAIN}, www.{$DOMAIN} {
+findmyhobby.in, www.findmyhobby.in {
 	encode zstd gzip
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
@@ -13,8 +13,8 @@
 		X-Frame-Options DENY
 		-Server
 	}
-	@www host www.{$DOMAIN}
-	redir @www https://{$DOMAIN}{uri} permanent
+	@www host www.findmyhobby.in
+	redir @www https://findmyhobby.in{uri} permanent
 
 	handle_path /api/* {
 		reverse_proxy 127.0.0.1:4000
@@ -32,7 +32,7 @@
 }
 
 # API for the phone app, the payment page and Razorpay webhooks
-api.{$DOMAIN} {
+api.findmyhobby.in {
 	encode zstd gzip
 	header -Server
 	reverse_proxy 127.0.0.1:4000

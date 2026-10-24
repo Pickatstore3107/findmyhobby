@@ -1,47 +1,49 @@
 # Deploying FindMyHobby
 
-One small EC2 server (Amazon Linux 2023, ARM) runs everything behind Caddy, next to a private RDS MySQL database.
-
 ```
-Internet ──HTTPS──► Caddy (:443, automatic certificates)
-                     ├─ yourdomain        → website pages (/srv/fmh/www)
-                     │   ├─ /console      → admin panel (static build)
-                     │   └─ /api/*        → API (for the admin panel)
-                     └─ api.yourdomain    → API (phone app, payment page, Razorpay webhooks)
-                                             └─ Node API (:4000, local only) ──► RDS MySQL (private)
+Internet ──HTTPS──► Caddy on the DigitalOcean server (Bangalore, 168.144.26.158)
+                     ├─ findmyhobby.in        → website pages (/srv/fmh/www)
+                     │   ├─ /console          → admin panel (static build)
+                     │   └─ /api/*            → API (for the admin panel)
+                     └─ api.findmyhobby.in    → API (phone app, payment page, Razorpay webhooks)
+                                                 └─ Node API (127.0.0.1:4000) ──TLS──► Supabase PostgreSQL (Mumbai)
 ```
 
-- No SSH port is open. Connect with **AWS Systems Manager → Session Manager**.
-- Secrets live in **Parameter Store** under `/findmyhobby/prod/`, are decrypted with the server's IAM role,
-  and are written only to `/run/fmh/api.env` (memory) when the API starts.
+- Firewall allows only SSH (keys only, no passwords), HTTP and HTTPS. fail2ban and daily security updates are on.
+- The API listens on 127.0.0.1 only; the outside world reaches it through Caddy.
+- The server reads the private GitHub repo with a read-only deploy key.
 
-## Parameter Store values (`/findmyhobby/prod/…`, type SecureString)
+## First-time server setup
 
-| Name | Example / notes |
+```bash
+scp deploy/server-setup.sh fmh:/root/ && ssh fmh 'bash /root/server-setup.sh'
+```
+
+## Settings on the server: `/etc/fmh/api.env` (owner root, group fmh, chmod 640)
+
+| Name | Value |
 |---|---|
 | `NODE_ENV` | `production` (also disables the development email sign-in) |
-| `PORT` | `4000` |
+| `HOST` / `PORT` | `127.0.0.1` / `4000` |
 | `TRUST_PROXY` | `1` |
-| `DATABASE_URL` | `mysql://fmh_app:PASSWORD@<rds-endpoint>:3306/findmyhobby` |
-| `DB_SSL` | `rds` (encrypted connection, certificate checked against Amazon RDS authorities) |
-| `OWNER_EMAILS` | owner's Google email(s), comma-separated |
+| `DATABASE_URL` | Supabase session pooler URL (password URL-encoded) |
+| `DB_SSL` | `require` |
+| `OWNER_EMAILS` | owner's Google email(s) |
 | `GOOGLE_CLIENT_IDS` | web, Android and iOS OAuth client IDs, comma-separated |
-| `ADMIN_ORIGIN` | `https://yourdomain` |
-| `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | test keys first, live keys after KYC |
-| `RAZORPAY_WEBHOOK_SECRET` | set when creating the webhook in Razorpay |
+| `ADMIN_ORIGIN` | `https://findmyhobby.in` |
+| `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` / `RAZORPAY_WEBHOOK_SECRET` | test keys first, live after KYC |
 | `UPI_ID` / `UPI_NAME` | optional manual-UPI fallback |
-| `S3_BUCKET` / `AWS_REGION` / `IMAGE_BASE_URL` | photo uploads and CloudFront address |
 
 ## Releasing a new version
 
 ```bash
-sudo bash /srv/fmh/app/deploy/deploy.sh
+ssh fmh 'bash /srv/fmh/app/deploy/deploy.sh'
 ```
 
-It pulls the code, installs packages, applies database migrations in order, builds the admin panel,
-publishes the website, restarts the API and checks `/health`.
+Pulls the code, installs packages, applies database migrations, builds the admin panel, publishes the
+website, restarts the API and checks `/health`.
 
 ## Database changes
 
-Change `api/src/db/schema.ts`, then on your Mac run `pnpm --dir api db:generate` and commit the new file in `api/drizzle/`.
+Change `api/src/db/schema.ts`, run `pnpm --dir api db:generate`, commit the new file in `api/drizzle/`.
 The next deploy applies it. Never edit a migration that has already been deployed.
