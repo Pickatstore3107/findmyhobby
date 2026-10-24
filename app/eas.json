@@ -1,29 +1,41 @@
 {
-  "cli": { "version": ">= 16.0.0", "appVersionSource": "remote" },
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
   "build": {
     "base": {
       "env": {
-        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "344220069361-vehav0m0g2crdgpoaa5fvicesab5bobn.apps.googleusercontent.com",
-        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": ""
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "344220069361-vehav0m0g2crdgpoaa5fvicesab5bobn.apps.googleusercontent.com"
       }
     },
     "development": {
       "extends": "base",
       "developmentClient": true,
       "distribution": "internal",
-      "android": { "buildType": "apk" }
+      "android": {
+        "buildType": "apk"
+      }
     },
     "preview": {
       "extends": "base",
       "distribution": "internal",
-      "android": { "buildType": "apk" },
-      "env": { "EXPO_PUBLIC_API_URL": "https://api.findmyhobby.in" }
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.findmyhobby.in"
+      }
     },
     "production": {
       "extends": "base",
       "autoIncrement": true,
-      "env": { "EXPO_PUBLIC_API_URL": "https://api.findmyhobby.in" }
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.findmyhobby.in"
+      }
     }
   },
-  "submit": { "production": {} }
+  "submit": {
+    "production": {}
+  }
 }
