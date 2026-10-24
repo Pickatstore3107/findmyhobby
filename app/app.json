@@ -10,10 +10,10 @@
     "backgroundColor": "#F3F2F2",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "club.findmyhobby.app"
+      "bundleIdentifier": "in.findmyhobby.app"
     },
     "android": {
-      "package": "club.findmyhobby.app",
+      "package": "in.findmyhobby.app",
       "adaptiveIcon": {
         "backgroundColor": "#EC3013",
         "foregroundImage": "./assets/android-icon-foreground.png",
