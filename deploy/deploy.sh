@@ -18,4 +18,5 @@ systemctl daemon-reload
 systemctl enable --quiet fmh-api
 systemctl restart fmh-api
 systemctl reload caddy
-sleep 3 && curl -fsS http://127.0.0.1:4000/health && echo "  ✓ API is up"
+for i in $(seq 1 30); do curl -fsS http://127.0.0.1:4000/health >/dev/null 2>&1 && { echo "✓ API is up"; exit 0; }; sleep 1; done
+echo "✗ API did not start: journalctl -u fmh-api -n 50"; exit 1
