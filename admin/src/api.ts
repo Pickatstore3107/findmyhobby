@@ -55,6 +55,8 @@ const MESSAGES: Record<string, string> = {
   CANNOT_CHANGE_SELF: 'You cannot change your own role or block yourself.',
   UPLOADS_NOT_CONFIGURED: 'Photo upload is not set up on this server yet (it is enabled when we deploy to AWS).',
   UNSUPPORTED_IMAGE_TYPE: 'Please use a JPG, PNG or WebP image.',
+  INVALID_GOOGLE_TOKEN: 'Google sign-in could not be verified. Please try again.',
+  ACCOUNT_BLOCKED: 'This account has been blocked.',
 };
 export const message = (e: unknown) => MESSAGES[(e as ApiError)?.code] ?? `Something went wrong (${(e as ApiError)?.code ?? 'unknown'}).`;
 

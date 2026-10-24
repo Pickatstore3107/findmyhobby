@@ -5,3 +5,6 @@ node_modules
 dist
 .expo
 .next
+# Admin build settings hold only public values (Google OAuth client ID)
+!admin/.env.production
+!admin/.env.development
