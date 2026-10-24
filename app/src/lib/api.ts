@@ -64,5 +64,7 @@ const MESSAGES: Record<string, string> = {
   CANCEL_UPCOMING_BOOKINGS_FIRST: 'Cancel your upcoming bookings first, then delete your account.',
   ACCOUNT_BLOCKED: 'This account has been blocked. Please contact the club.',
   INVALID_INPUT: 'Please check what you entered.',
+  INVALID_GOOGLE_TOKEN: 'Google sign-in could not be verified. Please try again.',
+  GOOGLE_UNAVAILABLE: 'Google sign-in is not available in this version of the app.',
 };
 export const message = (e: unknown) => MESSAGES[(e as ApiError)?.code] ?? 'Something went wrong. Please try again.';

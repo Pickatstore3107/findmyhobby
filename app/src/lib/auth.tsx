@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { api, setApiToken } from './api';
+import { googleSignOut } from './google';
 
 // The login token is kept in the phone's secure keychain (Keychain on iOS, Keystore on Android), never in plain storage.
 const KEY = 'fmh.session';
@@ -29,6 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     await api('/auth/logout', {}).catch(() => {});
+    await googleSignOut();
     setApiToken(null);
     await store.del();
     setMe(null);

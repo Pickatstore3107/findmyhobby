@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api, message } from '@/lib/api';
+import { googleAvailable, googleIdToken } from '@/lib/google';
 import { useAuth } from '@/lib/auth';
 import { C, F, GUTTER } from '@/lib/theme';
 import { Btn, Note, T } from '@/components/ui';
@@ -15,7 +16,16 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  // Development sign-in (the API allows it only on a local test server). Google sign-in replaces it for release.
+  const withGoogle = async () => {
+    setBusy(true); setError('');
+    try {
+      const idToken = await googleIdToken();
+      if (idToken) await signIn((await api<{ token: string }>('/auth/google', { idToken })).token);
+    } catch (e) { setError(message(e)); }
+    finally { setBusy(false); }
+  };
+
+  // Development-only email sign-in (the API allows it only on a local test server).
   const devSignIn = async () => {
     setBusy(true); setError('');
     try { await signIn((await api<{ token: string }>('/auth/dev', { email: email.trim() })).token); }
@@ -42,17 +52,16 @@ export default function Login() {
             Book chess, carrom, dance, painting and more by the hour. Show up, play, and join weekend tournaments.
           </T>
 
-          {__DEV__ ? (
-            <>
+          {googleAvailable() && <Btn label={busy ? 'Signing in…' : 'Continue with Google'} right="→" disabled={busy} onPress={withGoogle} />}
+          {!!error && <Note tone="error">{error}</Note>}
+          {__DEV__ && (
+            <View style={{ marginTop: 24 }}>
               <T v="kicker" style={{ marginBottom: 6 }}>Test sign-in (development only)</T>
               <TextInput value={email} onChangeText={setEmail} placeholder="you@example.com" autoCapitalize="none" autoComplete="email"
                 keyboardType="email-address" placeholderTextColor={C.n500} returnKeyType="go" onSubmitEditing={devSignIn}
                 style={{ height: 54, borderWidth: 2, borderColor: C.ink, paddingHorizontal: 14, fontFamily: F.semi, fontSize: 16, color: C.ink, backgroundColor: C.white }} />
-              {!!error && <Note tone="error">{error}</Note>}
-              <Btn label={busy ? 'Signing in…' : 'Continue'} right="→" disabled={busy || !email.includes('@')} onPress={devSignIn} style={{ marginTop: 12 }} />
-            </>
-          ) : (
-            <Btn label="Continue with Google" right="→" disabled />
+              <Btn kind="ghost" label="Continue with test email" right="→" disabled={busy || !email.includes('@')} onPress={devSignIn} style={{ marginTop: 12 }} />
+            </View>
           )}
           <T v="small" style={{ marginTop: 14 }}>By continuing you agree to the club’s terms and privacy policy.</T>
         </View>
