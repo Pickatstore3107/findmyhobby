@@ -2,25 +2,39 @@ import type { FastifyInstance } from 'fastify';
 import { and, asc, desc, eq, gte, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/index.ts';
-import { activities, auditLog, bookings, categories, payments, slots, tournamentPlayers, tournaments, users, zones } from '../db/schema.ts';
-import { AppError, cancelSlot, checkIn, createSlot, verifyPayment } from '../booking.ts';
-import { requireUser } from '../auth.ts';
+import { activities, auditLog, bookings, categories, hosts, payments, points, slots, tournamentPlayers, tournaments, users } from '../db/schema.ts';
+import { AppError, audit, cancelSlot, checkIn, createSlot, tx, updateSlot, verifyPayment } from '../booking.ts';
+import { report } from '../reports.ts';
+import { requireUser, revokeSessions } from '../auth.ts';
 import { parse } from '../validate.ts';
 import { generateDraw, setWinner } from '../tournament.ts';
 import { imageBase, signUpload } from '../uploads.ts';
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 const range = z.object({ from: z.coerce.date(), to: z.coerce.date() }).refine((r) => r.to > r.from && +r.to - +r.from <= 93 * 864e5);
-const WEEK = 7 * 864e5;
+const DAY = 864e5;
+const price = z.number().int().min(0).max(10_000_00); // paise
+const capacity = z.number().int().min(1).max(30);
+const hostId = z.number().int().positive().nullable();
 
 const activityBody = z.object({
   name: z.string().trim().min(1).max(60),
   categoryId: z.number().int().positive(),
   imageKey: z.string().max(255).regex(/^activities\/[\w./-]+$/).nullable().optional(),
-  defaultPrice: z.number().int().min(0).max(10_000_00),
-  defaultCapacity: z.number().int().min(1).max(30),
+  about: z.string().trim().max(2000).nullable().optional(),
+  bring: z.string().trim().max(200).nullable().optional(),
+  level: z.string().trim().min(1).max(20).optional(),
+  durationMin: z.number().int().min(15).max(720).optional(),
+  defaultHostId: hostId.optional(),
+  defaultPrice: price,
+  defaultCapacity: capacity.optional(),
   active: z.boolean().optional(),
 });
+const categoryBody = z.object({
+  name: z.string().trim().min(1).max(30), emoji: z.string().min(1).max(8),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/), sort: z.number().int().min(0).max(100),
+});
+const hostBody = z.object({ name: z.string().trim().min(1).max(60), bio: z.string().trim().max(300).nullable().optional(), active: z.boolean().optional() });
 
 export async function adminRoutes(app: FastifyInstance) {
   // ── Front desk ──
@@ -38,10 +52,10 @@ export async function adminRoutes(app: FastifyInstance) {
     const { from, to } = parse(range, req.query);
     return db.select({
       ref: bookings.ref, status: bookings.status, seats: bookings.seats, amount: bookings.amount, bookedAt: bookings.createdAt,
-      name: users.name, phone: users.phone, activity: activities.name, zone: zones.name, startsAt: slots.startsAt,
+      name: users.name, phone: users.phone, activity: activities.name, category: categories.name, startsAt: slots.startsAt,
     }).from(bookings)
       .innerJoin(slots, eq(slots.id, bookings.slotId)).innerJoin(users, eq(users.id, bookings.userId))
-      .innerJoin(activities, eq(activities.id, slots.activityId)).innerJoin(zones, eq(zones.id, slots.zoneId))
+      .innerJoin(activities, eq(activities.id, slots.activityId)).innerJoin(categories, eq(categories.id, activities.categoryId))
       .where(and(gte(slots.startsAt, from), lt(slots.startsAt, to)))
       .orderBy(asc(slots.startsAt), asc(bookings.createdAt));
   });
@@ -50,30 +64,51 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get('/slots', async (req) => {
     await requireUser(req, 'desk');
     const { from, to } = parse(range, req.query);
-    return db.select({ slot: slots, activity: activities.name, zone: zones.name }).from(slots)
-      .innerJoin(activities, eq(activities.id, slots.activityId)).innerJoin(zones, eq(zones.id, slots.zoneId))
+    return db.select({ slot: slots, activity: activities.name, color: categories.color, hostName: hosts.name }).from(slots)
+      .innerJoin(activities, eq(activities.id, slots.activityId)).innerJoin(categories, eq(categories.id, activities.categoryId))
+      .leftJoin(hosts, eq(hosts.id, slots.hostId))
       .where(and(gte(slots.startsAt, from), lt(slots.startsAt, to))).orderBy(asc(slots.startsAt));
   });
 
   // ── Manager: schedule, catalog, payments ──
-  /** Creates a slot, optionally repeating weekly. Clashing weeks are skipped and reported, not silently dropped. */
+  /**
+   * Creates a session, optionally repeating daily or weekly. Price, seats, length and host default to the activity's.
+   * Clashing dates are skipped and reported, not silently dropped.
+   */
   app.post('/slots', async (req) => {
     const admin = await requireUser(req, 'manager');
-    const { repeatWeeks, ...input } = parse(z.object({
-      activityId: z.number().int().positive(), zoneId: z.number().int().positive(),
-      startsAt: z.coerce.date(), endsAt: z.coerce.date(),
-      price: z.number().int().min(0).max(10_000_00), capacity: z.number().int().min(1).max(30),
-      hostName: z.string().trim().max(60).optional(), repeatWeeks: z.number().int().min(0).max(12).default(0),
+    const { repeatEvery, repeatCount, durationMin, ...input } = parse(z.object({
+      activityId: z.number().int().positive(), startsAt: z.coerce.date(),
+      durationMin: z.number().int().min(15).max(720).optional(),
+      price: price.optional(), capacity: capacity.optional(), hostId: hostId.optional(),
+      allowShortChangeover: z.boolean().optional(),
+      repeatEvery: z.enum(['day', 'week']).default('week'), repeatCount: z.number().int().min(0).max(30).default(0),
     }), req.body);
     if (input.startsAt <= new Date()) throw new AppError('SLOT_IN_PAST');
-    if (+input.endsAt - +input.startsAt > 12 * 3600e3) throw new AppError('SLOT_TOO_LONG');
-    const created: number[] = [], clashes: { startsAt: Date; with: unknown }[] = [];
-    for (let w = 0; w <= repeatWeeks; w++) {
-      const startsAt = new Date(+input.startsAt + w * WEEK), endsAt = new Date(+input.endsAt + w * WEEK);
-      try { created.push(await createSlot(admin.id, { ...input, startsAt, endsAt })); }
-      catch (e) { if ((e as AppError).code === 'ZONE_CLASH') clashes.push({ startsAt, with: (e as AppError).detail }); else throw e; }
+    const [a] = await db.select().from(activities).where(eq(activities.id, input.activityId));
+    if (!a) throw new AppError('ACTIVITY_NOT_FOUND', 404);
+    const step = repeatEvery === 'day' ? DAY : 7 * DAY, length = (durationMin ?? a.durationMin) * 60e3;
+    const base = { ...input, price: input.price ?? a.defaultPrice, capacity: input.capacity ?? a.defaultCapacity, hostId: input.hostId === undefined ? a.defaultHostId : input.hostId };
+    const created: number[] = [], clashes: { startsAt: Date; code: string; with: unknown }[] = [];
+    for (let i = 0; i <= repeatCount; i++) {
+      const startsAt = new Date(+input.startsAt + i * step);
+      try { created.push(await createSlot(admin.id, { ...base, startsAt, endsAt: new Date(+startsAt + length) })); }
+      catch (e) {
+        const err = e as AppError;
+        if (err.code === 'SLOT_CLASH' || err.code === 'SHORT_CHANGEOVER') clashes.push({ startsAt, code: err.code, with: err.detail }); else throw e;
+      }
     }
     return { created, clashes };
+  });
+
+  /** Open/close for booking, change price, seats, host, or move the time (only before anyone has booked). */
+  app.patch('/slots/:id', async (req) => {
+    const admin = await requireUser(req, 'manager');
+    const body = parse(z.object({
+      startsAt: z.coerce.date(), endsAt: z.coerce.date(), price, capacity, hostId, closed: z.boolean(), allowShortChangeover: z.boolean(),
+    }).partial(), req.body);
+    await updateSlot(admin.id, parse(idParam, req.params).id, body);
+    return { ok: true };
   });
 
   app.post('/slots/:id/cancel', async (req) => {
@@ -98,9 +133,23 @@ export async function adminRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
+  /** Only an activity that was never scheduled can be deleted; otherwise hide it with active: false. */
+  app.delete('/activities/:id', async (req) => {
+    const admin = await requireUser(req, 'manager');
+    const { id } = parse(idParam, req.params);
+    const [used] = await db.select({ id: slots.id }).from(slots).where(eq(slots.activityId, id)).limit(1);
+    if (used) throw new AppError('ACTIVITY_HAS_SESSIONS', 409);
+    await db.delete(activities).where(eq(activities.id, id));
+    await db.insert(auditLog).values({ actorId: admin.id, action: 'activity.delete', entity: 'activity', entityId: id });
+    return { ok: true };
+  });
+
   app.get('/catalog', async (req) => {
     await requireUser(req, 'desk');
-    return { categories: await db.select().from(categories), zones: await db.select().from(zones), activities: await db.select().from(activities), imageBase: imageBase() };
+    return {
+      categories: await db.select().from(categories).orderBy(asc(categories.sort)), hosts: await db.select().from(hosts).orderBy(asc(hosts.name)),
+      activities: await db.select().from(activities).orderBy(asc(activities.name)), imageBase: imageBase(),
+    };
   });
 
   /** Signed, 5-minute upload form for one image (max 5 MB, JPEG/PNG/WebP). */
@@ -110,30 +159,36 @@ export async function adminRoutes(app: FastifyInstance) {
     return signUpload(folder, contentType);
   });
 
-  app.patch('/zones/:id', async (req) => {
-    await requireUser(req, 'manager');
-    await db.update(zones).set(parse(z.object({ name: z.string().trim().min(1).max(50) }), req.body)).where(eq(zones.id, parse(idParam, req.params).id));
-    return { ok: true };
+  app.post('/categories', async (req) => {
+    const admin = await requireUser(req, 'manager');
+    const body = parse(categoryBody, req.body);
+    const [res] = await db.insert(categories).values(body).returning({ id: categories.id });
+    await db.insert(auditLog).values({ actorId: admin.id, action: 'category.create', entity: 'category', entityId: res.id, data: body });
+    return { id: res.id };
   });
 
   app.patch('/categories/:id', async (req) => {
-    await requireUser(req, 'manager');
-    const body = parse(z.object({ name: z.string().trim().min(1).max(30), emoji: z.string().min(1).max(8), sort: z.number().int().min(0).max(100) }).partial(), req.body);
-    await db.update(categories).set(body).where(eq(categories.id, parse(idParam, req.params).id));
+    const admin = await requireUser(req, 'manager');
+    const { id } = parse(idParam, req.params), body = parse(categoryBody.partial(), req.body);
+    await db.update(categories).set(body).where(eq(categories.id, id));
+    await db.insert(auditLog).values({ actorId: admin.id, action: 'category.update', entity: 'category', entityId: id, data: body });
     return { ok: true };
   });
 
-  app.post('/zones', async (req) => {
-    await requireUser(req, 'manager');
-    const [res] = await db.insert(zones).values(parse(z.object({ name: z.string().trim().min(1).max(50) }), req.body)).returning({ id: zones.id });
+  app.post('/hosts', async (req) => {
+    const admin = await requireUser(req, 'manager');
+    const body = parse(hostBody, req.body);
+    const [res] = await db.insert(hosts).values(body).returning({ id: hosts.id });
+    await db.insert(auditLog).values({ actorId: admin.id, action: 'host.create', entity: 'host', entityId: res.id, data: body });
     return { id: res.id };
   });
 
-  app.post('/categories', async (req) => {
-    await requireUser(req, 'manager');
-    const body = parse(z.object({ name: z.string().trim().min(1).max(30), emoji: z.string().min(1).max(8), sort: z.number().int().min(0).max(100) }), req.body);
-    const [res] = await db.insert(categories).values(body).returning({ id: categories.id });
-    return { id: res.id };
+  app.patch('/hosts/:id', async (req) => {
+    const admin = await requireUser(req, 'manager');
+    const { id } = parse(idParam, req.params), body = parse(hostBody.partial(), req.body);
+    await db.update(hosts).set(body).where(eq(hosts.id, id));
+    await db.insert(auditLog).values({ actorId: admin.id, action: 'host.update', entity: 'host', entityId: id, data: body });
+    return { ok: true };
   });
 
   /** Payment queue: UPI to verify, pay-at-venue to collect, refunds owed (negative amounts) to pay out. */
@@ -219,11 +274,62 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   app.get('/users', async (req) => {
-    await requireUser(req, 'owner');
+    await requireUser(req, 'manager');
     const { q } = parse(z.object({ q: z.string().trim().max(100).default('') }), req.query);
+    const like = '%' + q.replace(/[\\%_]/g, (c) => '\\' + c) + '%'; // a typed % or _ matches itself, not "anything"
     return db.select({ id: users.id, name: users.name, email: users.email, phone: users.phone, role: users.role, blocked: users.blocked })
-      .from(users).where(q ? sql`${users.name} ILIKE ${'%' + q + '%'} OR ${users.email} ILIKE ${'%' + q + '%'} OR ${users.phone} ILIKE ${'%' + q + '%'}` : undefined)
+      .from(users).where(q ? sql`${users.name} ILIKE ${like} OR ${users.email} ILIKE ${like} OR ${users.phone} ILIKE ${like}` : undefined)
       .orderBy(desc(users.id)).limit(100);
+  });
+
+  /** One member's record: profile, booking history with attendance, and points. */
+  app.get('/users/:id', async (req) => {
+    await requireUser(req, 'manager');
+    const { id } = parse(idParam, req.params);
+    const [user] = await db.select({ id: users.id, name: users.name, email: users.email, phone: users.phone, role: users.role, blocked: users.blocked, joined: users.createdAt })
+      .from(users).where(eq(users.id, id));
+    if (!user) throw new AppError('USER_NOT_FOUND', 404);
+    const history = await db.select({ ref: bookings.ref, status: bookings.status, seats: bookings.seats, amount: bookings.amount, activity: activities.name, startsAt: slots.startsAt })
+      .from(bookings).innerJoin(slots, eq(slots.id, bookings.slotId)).innerJoin(activities, eq(activities.id, slots.activityId))
+      .where(eq(bookings.userId, id)).orderBy(desc(slots.startsAt)).limit(200);
+    const ledger = await db.select().from(points).where(eq(points.userId, id)).orderBy(desc(points.createdAt)).limit(100);
+    const [{ total }] = await db.select({ total: sql<number>`COALESCE(SUM(${points.points}), 0)::int` }).from(points).where(eq(points.userId, id));
+    return { user, bookings: history, points: { total, ledger } };
+  });
+
+  /** Award or deduct points by hand (e.g. a challenge winner). */
+  app.post('/users/:id/points', async (req) => {
+    const admin = await requireUser(req, 'manager');
+    const { id } = parse(idParam, req.params);
+    const body = parse(z.object({ points: z.number().int().min(-1000).max(1000).refine((n) => n !== 0), note: z.string().trim().min(1).max(120) }), req.body);
+    await db.insert(points).values({ userId: id, points: body.points, reason: 'adjustment', note: body.note, awardedBy: admin.id });
+    await db.insert(auditLog).values({ actorId: admin.id, action: 'points.adjust', entity: 'user', entityId: id, data: body });
+    return { ok: true };
+  });
+
+  /** Bookings, occupancy, revenue, attendance and repeat customers for a date range. */
+  app.get('/reports', async (req) => {
+    const user = await requireUser(req, 'manager');
+    const { from, to } = parse(range, req.query);
+    const r = await report(from, to);
+    if (user.role === 'owner') return r;
+    // Money figures are for owners; managers see occupancy and attendance only.
+    const strip = <T extends object>(rows: T[]) => rows.map(({ revenue: _, ...rest }: any) => rest);
+    const { revenue: _, ...totals } = r.totals;
+    return { ...r, totals, byActivity: strip(r.byActivity), bySession: strip(r.bySession) };
+  });
+
+  /** Who did what: every admin action, sign-in and payment decision. Owners only. */
+  app.get('/audit', async (req) => {
+    await requireUser(req, 'owner');
+    const { entity, actorId, before } = parse(z.object({
+      entity: z.string().max(30).optional(), actorId: z.coerce.number().int().positive().optional(), before: z.coerce.number().int().positive().optional(),
+    }), req.query);
+    return db.select({ id: auditLog.id, action: auditLog.action, entity: auditLog.entity, entityId: auditLog.entityId, data: auditLog.data,
+      at: auditLog.createdAt, actor: users.name, actorRole: users.role })
+      .from(auditLog).innerJoin(users, eq(users.id, auditLog.actorId))
+      .where(and(entity ? eq(auditLog.entity, entity) : undefined, actorId ? eq(auditLog.actorId, actorId) : undefined, before ? lt(auditLog.id, before) : undefined))
+      .orderBy(desc(auditLog.id)).limit(100);
   });
 
   app.patch('/users/:id', async (req) => {
@@ -231,8 +337,18 @@ export async function adminRoutes(app: FastifyInstance) {
     const { id } = parse(idParam, req.params);
     if (id === owner.id) throw new AppError('CANNOT_CHANGE_SELF'); // stops an owner locking themselves out
     const body = parse(z.object({ role: z.enum(['member', 'desk', 'manager', 'owner']).optional(), blocked: z.boolean().optional() }), req.body);
-    await db.update(users).set(body).where(eq(users.id, id));
-    await db.insert(auditLog).values({ actorId: owner.id, action: 'user.update', entity: 'user', entityId: id, data: body });
+    await tx(async (t) => {
+      // Owners are locked while we change one, so two owners can't remove each other and leave the centre with none.
+      const ownersNow = await t.select({ id: users.id, blocked: users.blocked }).from(users).where(eq(users.role, 'owner')).for('update');
+      const [target] = await t.select().from(users).where(eq(users.id, id)).for('update');
+      if (!target) throw new AppError('USER_NOT_FOUND', 404);
+      const losesOwner = target.role === 'owner' && ((body.role && body.role !== 'owner') || body.blocked === true);
+      if (losesOwner && ownersNow.filter((o) => !o.blocked && o.id !== id).length === 0) throw new AppError('LAST_OWNER', 409);
+      await t.update(users).set(body).where(eq(users.id, id));
+      await audit(t, owner.id, 'user.update', 'user', id, { ...body, before: { role: target.role, blocked: target.blocked } });
+    });
+    // A new role or a block takes effect at once: the person signs in again with their new access (or can't).
+    await revokeSessions(id);
     return { ok: true };
   });
 }

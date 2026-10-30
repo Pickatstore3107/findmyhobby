@@ -3,8 +3,10 @@ import { createHmac } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { buildApp } from '../src/app.ts';
 import { client, db } from '../src/db/index.ts';
-import { activities, bookings, categories, payments, slots, users, zones } from '../src/db/schema.ts';
+import { activities, bookings, categories, payments, slots, users } from '../src/db/schema.ts';
 import { createSlot, expireHolds } from '../src/booking.ts';
+import { resetDb } from './reset.ts';
+import { login as startSession } from '../src/auth.ts';
 
 process.env.RAZORPAY_KEY_ID = 'rzp_test_key';
 process.env.RAZORPAY_KEY_SECRET = 'test_secret';
@@ -35,10 +37,11 @@ const webhook = (orderId: string, paymentId: string, amount: number, secret = 'h
   return call('POST', '/webhooks/razorpay', { raw, headers: { 'x-razorpay-signature': hmac(secret, raw) } });
 };
 
-let owner = 0, activity = 0, zone = 0, member = '', key = 0, hour = 0;
+let owner = 0, activity = 0, member = '', key = 0, hour = 0;
 const slot = async (capacity = 10) => {
-  const startsAt = new Date(Date.now() + (2 + ++hour) * 3600e3);
-  return createSlot(owner, { activityId: activity, zoneId: zone, startsAt, endsAt: new Date(+startsAt + 3600e3), price: 19900, capacity });
+  // Two days ahead, every two hours: clear of the other test files' sessions and of the changeover rule.
+  const startsAt = new Date(Date.now() + (48 + 2 * ++hour) * 3600e3);
+  return createSlot(owner, { activityId: activity, startsAt, endsAt: new Date(+startsAt + 3600e3), price: 19900, capacity });
 };
 const bookOnline = async (slotId: number, seats = 1, token = member) =>
   call('POST', '/bookings', { token, body: { slotId, seats, method: 'gateway', idempotencyKey: `online-${++key}-xxxx` } });
@@ -48,15 +51,19 @@ const seatsLeft = async (id: number) => { const [s] = await db.select().from(slo
 const login = async (email: string) => (await call('POST', '/auth/google', { body: { idToken: `google:${email}` } })).body.token as string;
 
 beforeAll(async () => {
+  await resetDb();
   await login('owner@fmh.in');
   owner = (await db.select().from(users).where(eq(users.email, 'owner@fmh.in')))[0].id;
   const [c] = await db.insert(categories).values({ name: 'Online', emoji: '💳' }).returning();
-  const [z] = await db.insert(zones).values({ name: 'Zone Pay' }).returning();
   const [a] = await db.insert(activities).values({ name: 'Pay Yoga', categoryId: c.id, defaultPrice: 19900, defaultCapacity: 10 }).returning();
-  activity = a.id; zone = z.id;
+  activity = a.id;
   member = await login('payer@test.in');
 });
-beforeEach(() => { razorpayDown = false; refunds.length = 0; });
+// Each test pays as a new member, so the per-member booking limits never get in the way.
+let payer = 0;
+beforeEach(async () => {
+  // Signed in directly rather than through /auth/google, which is rate-limited to 10 sign-ins a minute.
+  member = (await startSession({ sub: `payer-${++payer}`, email: `payer${payer}@test.in`, name: 'Payer' })).token; razorpayDown = false; refunds.length = 0; });
 afterAll(async () => { await app.close(); await client.end(); });
 
 describe('starting an online payment', () => {

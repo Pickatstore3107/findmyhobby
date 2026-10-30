@@ -50,6 +50,11 @@ export function useNow(ms = 30_000) {
 const MESSAGES: Record<string, string> = {
   NETWORK: "Can't reach FindMyHobby. Check your internet and try again.",
   NOT_ENOUGH_SEATS: 'Not enough seats left in this slot. Try fewer seats or another time.',
+  TOO_MANY_BOOKINGS: 'You already have 3 upcoming bookings. Attend or cancel one to book another.',
+  TOO_MANY_VENUE_BOOKINGS: 'You can hold up to 2 pay-at-centre bookings at a time. Pay online for this one, or cancel another.',
+  UNPAID_BOOKING_WAITING: 'Your last UPI payment is still being checked by the centre. You can book again once it is confirmed.',
+  SLOT_CLOSED: 'This session is no longer taking bookings.',
+  DUPLICATE_REQUEST: 'Something went wrong with that request. Please try again.',
   SLOT_NOT_BOOKABLE: 'This slot can no longer be booked.',
   ALREADY_BOOKED: 'You already have a booking for this slot.',
   HOLD_EXPIRED: 'The 10 minutes to pay ran out, so the seat was released. Please book again.',

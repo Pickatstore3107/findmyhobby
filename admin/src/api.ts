@@ -34,9 +34,14 @@ export function useApi<T>(path: string | null) {
 }
 
 const MESSAGES: Record<string, string> = {
-  ZONE_CLASH: 'Another slot already uses this zone at that time.',
+  SLOT_CLASH: 'Another session is already running at that time. The centre runs one session at a time.',
+  SHORT_CHANGEOVER: 'Less than 30 minutes to change over from the session next to it. Tick "Allow a shorter changeover" to create it anyway.',
   SLOT_IN_PAST: 'The start time is in the past.',
-  SLOT_TOO_LONG: 'A slot can be at most 12 hours.',
+  SLOT_HAS_BOOKINGS: 'People have already booked this session, so its time can no longer be moved. Cancel it instead.',
+  BELOW_BOOKED_SEATS: 'More seats are already booked than that.',
+  SLOT_NOT_FOUND: 'This session no longer exists or was cancelled.',
+  ACTIVITY_HAS_SESSIONS: 'This activity has sessions, so it cannot be deleted. Hide it from the app instead.',
+  ACTIVITY_NOT_FOUND: 'That activity no longer exists.',
   INVALID_TIMES: 'The end time must be after the start time.',
   INVALID_INPUT: 'Please check the form. Something is missing or invalid.',
   PAYMENT_NOT_PENDING: 'Someone already handled this payment.',
@@ -53,10 +58,14 @@ const MESSAGES: Record<string, string> = {
   TOURNAMENT_ALREADY_STARTED: 'The tournament has started and can no longer be edited.',
   BELOW_REGISTERED_COUNT: 'More players have already registered than that.',
   CANNOT_CHANGE_SELF: 'You cannot change your own role or block yourself.',
-  UPLOADS_NOT_CONFIGURED: 'Photo upload is not set up on this server yet (it is enabled when we deploy to AWS).',
+  UPLOADS_NOT_CONFIGURED: 'Photo upload is not set up on this server yet (it is enabled once Supabase Storage is connected).',
   UNSUPPORTED_IMAGE_TYPE: 'Please use a JPG, PNG or WebP image.',
   INVALID_GOOGLE_TOKEN: 'Google sign-in could not be verified. Please try again.',
   ACCOUNT_BLOCKED: 'This account has been blocked.',
+  LAST_OWNER: 'The centre must always have at least one active owner. Make someone else an owner first.',
+  GATEWAY_PAYMENT_NOT_MANUAL: 'Online payments are confirmed automatically by the payment gateway, not by hand.',
+  USER_NOT_FOUND: 'That person no longer exists.',
+  SLOT_CLOSED: 'This session is closed to new bookings.',
 };
 export const message = (e: unknown) => MESSAGES[(e as ApiError)?.code] ?? `Something went wrong (${(e as ApiError)?.code ?? 'unknown'}).`;
 
