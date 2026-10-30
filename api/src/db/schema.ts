@@ -1,7 +1,7 @@
 // PostgreSQL (Supabase). Times are stored as timestamptz; money is stored in paise (₹1 = 100) to avoid decimal errors.
 import { sql } from 'drizzle-orm';
 import {
-  pgTable, pgEnum, integer, smallint, varchar, timestamp, boolean, jsonb,
+  pgTable, pgEnum, integer, smallint, varchar, text, timestamp, boolean, jsonb,
   index, uniqueIndex, check,
 } from 'drizzle-orm/pg-core';
 
@@ -34,18 +34,21 @@ export const sessions = pgTable('sessions', {
   expiresAt: time('expires_at').notNull(),
 }, (t) => [index('sessions_user').on(t.userId)]);
 
-// Physical areas of the venue (Zone A Play, Zone B Move…). Only one slot per zone at a time.
-export const zones = pgTable('zones', {
-  id: id(),
-  name: varchar('name', { length: 50 }).notNull().unique(),
-});
-
-// What members see on Home: Play, Move, Create, Express, Learn.
+// What members browse on Home: Play, Move, Create, Learn. The colour fills the session cards.
 export const categories = pgTable('categories', {
   id: id(),
   name: varchar('name', { length: 30 }).notNull().unique(),
   emoji: varchar('emoji', { length: 8 }).notNull(),
+  color: varchar('color', { length: 7 }).notNull().default('#EDEAE5'), // #RRGGBB
   sort: smallint('sort').notNull().default(0),
+}, (t) => [check('category_color', sql`${t.color} ~ '^#[0-9A-Fa-f]{6}$'`)]);
+
+// Instructors and hosts who run sessions.
+export const hosts = pgTable('hosts', {
+  id: id(),
+  name: varchar('name', { length: 60 }).notNull().unique(),
+  bio: varchar('bio', { length: 300 }),
+  active: boolean('active').notNull().default(true),
 });
 
 export const activities = pgTable('activities', {
@@ -53,24 +56,32 @@ export const activities = pgTable('activities', {
   name: varchar('name', { length: 60 }).notNull().unique(),
   categoryId: integer('category_id').notNull().references(() => categories.id),
   imageKey: varchar('image_key', { length: 255 }),
+  about: text('about'),
+  bring: varchar('bring', { length: 200 }), // "What to bring"
+  level: varchar('level', { length: 20 }).notNull().default('All levels'),
+  durationMin: smallint('duration_min').notNull().default(60),
+  defaultHostId: integer('default_host_id').references(() => hosts.id),
   defaultPrice: integer('default_price').notNull(),
-  defaultCapacity: smallint('default_capacity').notNull(),
+  defaultCapacity: smallint('default_capacity').notNull().default(20),
   active: boolean('active').notNull().default(true),
-}, (t) => [check('activity_capacity', sql`${t.defaultCapacity} BETWEEN 1 AND 30`)]);
+}, (t) => [
+  check('activity_capacity', sql`${t.defaultCapacity} BETWEEN 1 AND 30`),
+  check('activity_duration', sql`${t.durationMin} BETWEEN 15 AND 720`),
+]);
 
+// One session in the centre. The whole space runs one session at a time, so sessions never overlap.
 export const slots = pgTable('slots', {
   id: id(),
   activityId: integer('activity_id').notNull().references(() => activities.id),
-  zoneId: integer('zone_id').notNull().references(() => zones.id),
   startsAt: time('starts_at').notNull(),
   endsAt: time('ends_at').notNull(),
   price: integer('price').notNull(),
   capacity: smallint('capacity').notNull(),
   bookedSeats: smallint('booked_seats').notNull().default(0),
-  hostName: varchar('host_name', { length: 60 }),
+  hostId: integer('host_id').references(() => hosts.id),
+  closed: boolean('closed').notNull().default(false), // still runs, but takes no new bookings
   cancelled: boolean('cancelled').notNull().default(false),
 }, (t) => [
-  index('slots_zone_time').on(t.zoneId, t.startsAt),
   index('slots_time').on(t.startsAt),
   // The database itself refuses overbooking, even if application code has a bug.
   check('slot_capacity', sql`${t.capacity} BETWEEN 1 AND 30 AND ${t.bookedSeats} BETWEEN 0 AND ${t.capacity}`),
@@ -143,6 +154,24 @@ export const matches = pgTable('matches', {
   player2Id: integer('player2_id').references(() => tournamentPlayers.id),
   winnerId: integer('winner_id').references(() => tournamentPlayers.id),
 }, (t) => [uniqueIndex('match_slot').on(t.tournamentId, t.round, t.position)]);
+
+// Points ledger: one row per award or adjustment (negative = deduction). A member's total is the sum.
+export const points = pgTable('points', {
+  id: id(),
+  userId: integer('user_id').notNull().references(() => users.id),
+  points: integer('points').notNull(),
+  reason: varchar('reason', { length: 30 }).notNull(), // attended, tournament_win, adjustment…
+  note: varchar('note', { length: 120 }),
+  bookingId: integer('booking_id').references(() => bookings.id),
+  tournamentId: integer('tournament_id').references(() => tournaments.id),
+  awardedBy: integer('awarded_by').references(() => users.id), // null = automatic
+  createdAt: createdAt(),
+}, (t) => [
+  index('points_user').on(t.userId, t.createdAt),
+  index('points_time').on(t.createdAt),
+  // A booking earns its attendance points once, however many times check-in is retried.
+  uniqueIndex('one_award_per_booking').on(t.bookingId, t.reason).where(sql`${t.bookingId} IS NOT NULL`),
+]);
 
 // Every admin action is recorded: who did what, to what, and when.
 export const auditLog = pgTable('audit_log', {

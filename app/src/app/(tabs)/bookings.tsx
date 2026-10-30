@@ -32,7 +32,7 @@ export default function Bookings() {
           <View style={{ flex: 1, padding: 14, gap: 2 }}>
             <T v="kicker" style={{ color: b.status === 'pending' ? C.accent700 : C.n600 }}>{fmtDay(b.startsAt)} · {LABEL[b.status]}</T>
             <Text style={{ fontFamily: F.bold, fontSize: 20, color: C.ink }}>{b.activity}</Text>
-            <T>{fmtRange(b.startsAt, b.endsAt)} · {b.seats} seat{b.seats > 1 ? 's' : ''} · {b.zone}</T>
+            <T>{fmtRange(b.startsAt, b.endsAt)} · {b.seats} seat{b.seats > 1 ? 's' : ''} · {b.category}</T>
             <T v="small" style={{ color: C.accent700, fontFamily: F.bold, marginTop: 6 }}>Show ticket →</T>
           </View>
           <View style={{ width: 96, backgroundColor: C.illus, borderLeftWidth: 2, borderColor: C.ink, overflow: 'hidden' }}>

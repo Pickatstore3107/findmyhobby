@@ -14,7 +14,7 @@ export function Money() {
 
   return (
     <>
-      <header className="page"><div><div className="kicker">Verified money only · India time</div><h1>Money</h1></div>
+      <header className="page"><div><h1>Revenue</h1><span className="sub">Verified money only · India time</span></div>
         <div className="row">
           <input type="month" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} />
           <button className="btn" disabled={!rows.length} onClick={() => downloadCsv(`money-${month}`, [
@@ -23,20 +23,21 @@ export function Money() {
         </div>
       </header>
       <div className="stats" style={{ marginBottom: 24 }}>
-        <div className="stat"><div className="kicker">Collected</div><div className="v num">{rupees(total('collected'))}</div></div>
-        <div className="stat"><div className="kicker">Refunded</div><div className="v num">{rupees(total('refunded'))}</div></div>
-        <div className="stat hot"><div className="kicker">Net</div><div className="v num">{rupees(total('net'))}</div></div>
+        <div className="stat"><span className="kicker">Collected</span><span className="v num">{rupees(total('collected'))}</span></div>
+        <div className="stat"><span className="kicker">Refunded</span><span className="v num">{rupees(total('refunded'))}</span></div>
+        <div className="stat"><span className="kicker">Net</span><span className="v num" style={{ color: 'var(--text)' }}>{rupees(total('net'))}</span></div>
       </div>
       {data.error && <p className="note error">{data.error}</p>}
-      <div className="scroll"><table>
+      <section><div className="scroll"><table>
         <thead><tr><th>Date</th><th>Collected</th><th>Refunded</th><th>Net</th></tr></thead>
         <tbody>{rows.map((r) => (
           <tr key={r.day}><td className="num"><b>{new Date(r.day).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}</b></td>
             <td className="num">{rupees(r.collected)}</td><td className="num">{rupees(r.refunded)}</td><td className="num"><b>{rupees(r.net)}</b></td></tr>
         ))}</tbody>
       </table></div>
-      {!data.loading && !rows.length && <p className="muted" style={{ marginTop: 12 }}>No verified payments this month.</p>}
-      <p className="muted" style={{ marginTop: 16 }}>Money counts here once a UPI payment is verified, cash is collected at check-in, or a refund is marked as sent.</p>
+      {!data.loading && !rows.length && <p className="empty">No verified payments this month.</p>}
+      </section>
+      <p className="muted" style={{ marginTop: 12, fontSize: 12 }}>Money counts here once a UPI payment is verified, cash is collected at check-in, or a refund is marked as sent.</p>
     </>
   );
 }

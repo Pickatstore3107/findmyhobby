@@ -8,8 +8,8 @@ main() {
   # Only what the server needs (API + admin); the phone app is built separately.
   sudo -u fmh pnpm install --frozen-lockfile --filter @fmh/api... --filter @fmh/admin...
   # Database changes are applied in order before the new code starts.
-  DB_URL=$(grep '^DATABASE_URL=' /etc/fmh/api.env | cut -d= -f2-)
-  (cd api && sudo -u fmh env DATABASE_URL="$DB_URL" DB_SSL=require pnpm db:migrate)
+  # The env file is read inside the app user's shell, so the database password never appears in the process list.
+  (cd api && sudo -u fmh bash -c 'set -a && . /etc/fmh/api.env && set +a && DB_SSL=require pnpm db:migrate')
   sudo -u fmh pnpm --filter @fmh/admin build
   rsync -a --delete --exclude console website/ /srv/fmh/www/
   rsync -a --delete admin/dist/ /srv/fmh/www/console/

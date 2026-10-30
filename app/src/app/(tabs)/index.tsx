@@ -62,7 +62,7 @@ export default function Home() {
           <View style={{ flex: 1 }}>
             <T v="kicker" style={{ color: C.accent400 }}>Up next · {fmtDay(upNext.startsAt)}</T>
             <Text style={{ fontFamily: F.bold, fontSize: 18, color: C.white, marginTop: 6 }}>{upNext.activity} · {fmtRange(upNext.startsAt, upNext.endsAt)}</Text>
-            <T style={{ color: C.n400, marginTop: 2 }}>{upNext.zone} · {upNext.seats} seat{upNext.seats > 1 ? 's' : ''}{upNext.status === 'pending' ? ' · payment pending' : ''}</T>
+            <T style={{ color: C.n400, marginTop: 2 }}>{upNext.category} · {upNext.seats} seat{upNext.seats > 1 ? 's' : ''}{upNext.status === 'pending' ? ' · payment pending' : ''}</T>
           </View>
           <View style={{ backgroundColor: C.accent, paddingVertical: 8, paddingHorizontal: 12 }}><Text style={{ fontFamily: F.bold, color: C.white, fontSize: 13 }}>Show QR</Text></View>
         </Pressable>
@@ -112,7 +112,7 @@ export default function Home() {
             </View>
             <View style={{ flex: 1 }}>
               <T v="title">{s.activity}</T>
-              <T v="small" style={{ color: s.seatsLeft <= 2 ? C.accent700 : C.n600 }}>{s.seatsLeft ? `${s.seatsLeft} spot${s.seatsLeft > 1 ? 's' : ''} left` : 'Full'} · {s.zone}</T>
+              <T v="small" style={{ color: s.seatsLeft <= 2 ? C.accent700 : C.n600 }}>{s.seatsLeft ? `${s.seatsLeft} spot${s.seatsLeft > 1 ? 's' : ''} left` : 'Full'} · {s.category}</T>
             </View>
             <T v="num" style={{ marginRight: 10 }}>{rupees(s.price)}</T>
             <Text style={{ fontFamily: F.bold, color: C.n500, fontSize: 16 }}>›</Text>

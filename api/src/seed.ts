@@ -1,6 +1,6 @@
 // Fills the LOCAL database with sample data for development. Refuses to run against anything but localhost.
 import { client, db } from './db/index.ts';
-import { activities, categories, users, zones } from './db/schema.ts';
+import { activities, categories, hosts, users } from './db/schema.ts';
 import { bookSlot, createSlot, submitUtr } from './booking.ts';
 
 if (!/@(127\.0\.0\.1|localhost)[:/]/.test(process.env.DATABASE_URL ?? '')) throw new Error('Seed only runs on a local database');
@@ -8,22 +8,27 @@ if (!/@(127\.0\.0\.1|localhost)[:/]/.test(process.env.DATABASE_URL ?? '')) throw
 const IST = 5.5 * 3600e3;
 const istMidnight = (dayOffset: number) => new Date(Math.floor((Date.now() + IST) / 864e5) * 864e5 - IST + dayOffset * 864e5);
 
-if ((await db.select().from(zones)).length > 0) { console.log('Already seeded.'); process.exit(0); }
+if ((await db.select().from(activities)).length > 0) { console.log('Already seeded.'); process.exit(0); }
 
+// The four categories also come from a migration; insert them here only if that migration did not.
 await db.insert(categories).values([
-  { name: 'Play', emoji: '🏆', sort: 1 }, { name: 'Move', emoji: '🧘', sort: 2 }, { name: 'Create', emoji: '🎨', sort: 3 },
-  { name: 'Express', emoji: '🎤', sort: 4 }, { name: 'Learn', emoji: '💻', sort: 5 },
-]);
-await db.insert(zones).values([{ name: 'Zone A · Play' }, { name: 'Zone B · Move' }, { name: 'Zone C · Create' }]);
+  { name: 'Play', emoji: '♟️', color: '#FFD45C', sort: 1 }, { name: 'Move', emoji: '🧘', color: '#9CCBFF', sort: 2 },
+  { name: 'Create', emoji: '🎨', color: '#F7B8DD', sort: 3 }, { name: 'Learn', emoji: '💡', color: '#BDEB9A', sort: 4 },
+]).onConflictDoNothing();
 const [cat] = [await db.select().from(categories)].map((r) => Object.fromEntries(r.map((c) => [c.name, c.id])));
+await db.insert(hosts).values([{ name: 'Priya' }, { name: 'Rohan' }, { name: 'Meera' }, { name: 'Kiran' }]);
+const host = Object.fromEntries((await db.select().from(hosts)).map((h) => [h.name, h.id]));
 const acts = [
-  ['Chess', 'Play', 99, 30], ['Carrom', 'Play', 149, 16], ['Board Games', 'Play', 149, 30], ['Quiz Night', 'Play', 99, 30],
-  ['Yoga', 'Move', 199, 20], ['Dance', 'Move', 199, 20], ['Painting', 'Create', 299, 12], ['Calligraphy', 'Create', 249, 12],
-  ['AI Class', 'Learn', 399, 15], ['Video Editing', 'Learn', 399, 15],
+  ['Chess', 'Play', 99, 'Beginner'], ['Board Games & Carrom', 'Play', 149, 'All levels'], ['Quiz & Challenges', 'Play', 99, 'All levels'],
+  ['Yoga', 'Move', 199, 'All levels', 'Priya'], ['Dance / Zumba', 'Move', 199, 'All levels', 'Rohan'],
+  ['Painting / Art', 'Create', 299, 'Beginner', 'Meera'], ['Calligraphy', 'Create', 249, 'Beginner', 'Meera'],
+  ['AI Basics', 'Learn', 399, 'Beginner', 'Kiran'],
 ] as const;
-await db.insert(activities).values(acts.map(([name, c, price, cap]) => ({ name, categoryId: cat[c], defaultPrice: price * 100, defaultCapacity: cap })));
+await db.insert(activities).values(acts.map(([name, c, price, level, h]) => ({
+  name, categoryId: cat[c], defaultPrice: price * 100, level, defaultHostId: h ? host[h] : null,
+  about: `A friendly ${name.toLowerCase()} session at the FindMyHobby centre.`, bring: 'Water bottle',
+})));
 const act = Object.fromEntries((await db.select().from(activities)).map((a) => [a.name, a]));
-const zone = (await db.select().from(zones)).map((z) => z.id);
 
 await db.insert(users).values([
   { googleSub: 'dev-owner@findmyhobby.local', email: 'owner@findmyhobby.local', name: 'owner', role: 'owner' },
@@ -32,19 +37,18 @@ await db.insert(users).values([
 const owner = (await db.select().from(users))[0].id;
 const members = (await db.select().from(users)).slice(1).map((u) => u.id);
 
-// [zone index, activity, start hour IST, hours, host]
-const day: [number, string, number, number, string?][] = [
-  [0, 'Board Games', 14, 2], [0, 'Chess', 18, 1], [0, 'Carrom', 19, 1], [0, 'Quiz Night', 20, 1],
-  [1, 'Yoga', 7, 1, 'Priya'], [1, 'Dance', 17, 1, 'Rohan'], [1, 'Yoga', 19, 1, 'Priya'],
-  [2, 'AI Class', 14, 1, 'Kiran'], [2, 'Video Editing', 16, 1], [2, 'Painting', 18, 2, 'Meera'],
+// The brief's example timetable: [activity, start hour IST]. One session at a time, 30 minutes to change over.
+const day: [string, number][] = [
+  ['Yoga', 7], ['Painting / Art', 10], ['Chess', 11.5], ['AI Basics', 14], ['Calligraphy', 15.5],
+  ['Dance / Zumba', 17], ['Board Games & Carrom', 18.5], ['Quiz & Challenges', 20],
 ];
 let key = 0;
 for (let d = 0; d < 7; d++) {
-  for (const [z, name, hour, hours, hostName] of day) {
+  for (const [name, hour] of day) {
     const startsAt = new Date(+istMidnight(d) + hour * 3600e3);
     if (startsAt <= new Date()) continue;
     const a = act[name];
-    const slotId = await createSlot(owner, { activityId: a.id, zoneId: zone[z], startsAt, endsAt: new Date(+startsAt + hours * 3600e3), price: a.defaultPrice, capacity: a.defaultCapacity, hostName });
+    const slotId = await createSlot(owner, { activityId: a.id, startsAt, endsAt: new Date(+startsAt + a.durationMin * 60e3), price: a.defaultPrice, capacity: a.defaultCapacity, hostId: a.defaultHostId });
     const fill = Math.floor(Math.random() * a.defaultCapacity * 0.9);
     for (const userId of members.slice(0, fill)) {
       const method = Math.random() < 0.5 ? 'upi' : 'venue';

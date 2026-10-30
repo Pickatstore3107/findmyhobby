@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { client, db } from '../src/db/index.ts';
 import { activities, categories, matches, tournaments, users } from '../src/db/schema.ts';
 import { generateDraw, getBracket, register, setWinner, unregister } from '../src/tournament.ts';
+import { resetDb } from './reset.ts';
 
 let admin = 0, activity = 0, seq = 0;
 const newUsers = async (n: number) => {
@@ -23,6 +24,7 @@ const roundOf = async (id: number, round: number) =>
   db.select().from(matches).where(and(eq(matches.tournamentId, id), eq(matches.round, round))).orderBy(matches.position);
 
 beforeAll(async () => {
+  await resetDb();
   [admin] = await newUsers(1);
   const [c] = await db.insert(categories).values({ name: 'Tour', emoji: '🏆' }).returning();
   const [a] = await db.insert(activities).values({ name: 'Tour Chess', categoryId: c.id, defaultPrice: 0, defaultCapacity: 30 }).returning();

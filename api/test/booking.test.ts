@@ -1,41 +1,63 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { client, db } from '../src/db/index.ts';
-import { activities, bookings, categories, payments, slots, users, zones } from '../src/db/schema.ts';
-import { bookSlot, cancelBooking, createSlot, expireHolds, submitUtr, verifyPayment, windowEnd } from '../src/booking.ts';
+import { activities, bookings, categories, payments, points, slots, users } from '../src/db/schema.ts';
+import { MAX_ACTIVE_BOOKINGS, ATTEND_POINTS, bookSlot, cancelBooking, checkIn, createSlot, expireHolds, markNoShows, submitUtr, updateSlot, verifyPayment, windowEnd } from '../src/booking.ts';
+import { resetDb } from './reset.ts';
 
 const HOUR = 3_600_000;
 const now = new Date('2026-10-22T06:30:00Z'); // Thu 22 Oct, 12:00 PM IST
 const at = (h: number) => new Date(now.getTime() + h * HOUR);
-let admin = 0, zone = 0, activity = 0, key = 0;
+let admin = 0, activity = 0, key = 0;
 const k = () => `key-${++key}`;
 
 const newUsers = async (n: number) => {
   const start = (await db.select({ id: users.id }).from(users)).length;
-  await db.insert(users).values(Array.from({ length: n }, (_, i) =>
-    ({ googleSub: `g${start + i}`, email: `u${start + i}@test.in`, name: `User ${start + i}` })));
-  return (await db.select({ id: users.id }).from(users)).slice(-n).map((u) => u.id);
+  const rows = await db.insert(users).values(Array.from({ length: n }, (_, i) =>
+    ({ googleSub: `g${start + i}`, email: `u${start + i}@test.in`, name: `User ${start + i}` }))).returning({ id: users.id });
+  return rows.map((u) => u.id);
 };
-const slot = (startH: number, capacity = 30, z = zone) =>
-  createSlot(admin, { activityId: activity, zoneId: z, startsAt: at(startH), endsAt: at(startH + 1), price: 9900, capacity });
+// Most tests place sessions close together, so they skip the changeover rule; the scheduling tests check it.
+const slot = (startH: number, capacity = 30, allowShortChangeover = true) =>
+  createSlot(admin, { activityId: activity, startsAt: at(startH), endsAt: at(startH + 1), price: 9900, capacity, allowShortChangeover });
 const seatsOf = async (id: number) => (await db.select().from(slots).where(eq(slots.id, id)))[0].bookedSeats;
 
 beforeAll(async () => {
+  await resetDb();
   [admin] = await newUsers(1);
   const [c] = await db.insert(categories).values({ name: 'Play', emoji: '🏆' }).returning();
-  const [z] = await db.insert(zones).values({ name: 'Zone A' }).returning();
   const [a] = await db.insert(activities).values({ name: 'Chess', categoryId: c.id, defaultPrice: 9900, defaultCapacity: 30 }).returning();
-  zone = z.id; activity = a.id;
+  activity = a.id;
 });
 afterAll(() => client.end());
 
 describe('scheduling', () => {
-  it('blocks overlapping slots in the same zone, allows back-to-back and other zones', async () => {
-    await slot(24);
-    await expect(slot(24.5)).rejects.toThrow('ZONE_CLASH');
-    await expect(slot(25)).resolves.toBeTypeOf('number');
-    const [z2] = await db.insert(zones).values({ name: 'Zone B' }).returning();
-    await expect(slot(24, 30, z2.id)).resolves.toBeTypeOf('number');
+  it('one session at a time: blocks overlaps, and gaps shorter than the changeover unless the admin accepts them', async () => {
+    await slot(24, 30, false);
+    await expect(slot(24.5, 30, false)).rejects.toThrow('SLOT_CLASH');
+    await expect(slot(24.5, 30, true)).rejects.toThrow('SLOT_CLASH'); // overlap is never allowed
+    await expect(slot(25, 30, false)).rejects.toThrow('SHORT_CHANGEOVER');
+    await expect(slot(23, 30, false)).rejects.toThrow('SHORT_CHANGEOVER'); // also checks the session before
+    await expect(slot(25.5, 30, false)).resolves.toBeTypeOf('number'); // exactly 30 minutes is fine
+    await expect(slot(22.5, 30, true)).resolves.toBeTypeOf('number');  // back-to-back when the admin accepts it
+  });
+
+  it('edits: price and seats change freely, times only before anyone books, seats never below booked', async () => {
+    const id = await slot(30, 10, false);
+    await updateSlot(admin, id, { price: 14900, capacity: 12 });
+    const [userId] = await newUsers(1);
+    await bookSlot({ userId, slotId: id, seats: 3, method: 'venue', idempotencyKey: k(), now });
+    await expect(updateSlot(admin, id, { capacity: 2 })).rejects.toThrow('BELOW_BOOKED_SEATS');
+    await expect(updateSlot(admin, id, { startsAt: at(31), endsAt: at(32) })).rejects.toThrow('SLOT_HAS_BOOKINGS');
+    const [s] = await db.select().from(slots).where(eq(slots.id, id));
+    expect([s.price, s.capacity, s.bookedSeats]).toEqual([14900, 12, 3]);
+  });
+
+  it('a closed session takes no new bookings', async () => {
+    const id = await slot(33, 10, false);
+    await updateSlot(admin, id, { closed: true });
+    const [userId] = await newUsers(1);
+    await expect(bookSlot({ userId, slotId: id, seats: 1, method: 'venue', idempotencyKey: k(), now })).rejects.toThrow('SLOT_CLOSED');
   });
 
   it('two admins creating the same time at once: exactly one wins', async () => {
@@ -149,5 +171,63 @@ describe('cancellation', () => {
     expect(await seatsOf(id)).toBe(0);
     const ledger = await db.select().from(payments).where(eq(payments.bookingId, b.id));
     expect(ledger.reduce((s, x) => s + x.amount, 0)).toBe(0); // +19800 paid, -19800 refund owed
+  });
+});
+
+describe('attendance', () => {
+  it('check-in earns points once; confirmed bookings left unchecked become no-shows after the session', async () => {
+    const id = await slot(18);
+    const [came, missed] = await newUsers(2);
+    const a = await bookSlot({ userId: came, slotId: id, seats: 1, method: 'venue', idempotencyKey: k(), now });
+    await bookSlot({ userId: missed, slotId: id, seats: 1, method: 'venue', idempotencyKey: k(), now });
+    await checkIn(admin, a.ref, at(18));
+    await expect(checkIn(admin, a.ref, at(18))).rejects.toThrow('ALREADY_CHECKED_IN');
+    expect((await db.select().from(points).where(eq(points.userId, came))).map((p) => p.points)).toEqual([ATTEND_POINTS]);
+
+    const statuses = async () => Object.fromEntries((await db.select({ userId: bookings.userId, status: bookings.status })
+      .from(bookings).where(eq(bookings.slotId, id))).map((b) => [b.userId, b.status]));
+    await markNoShows(at(18.5)); // session still running
+    expect(await statuses()).toEqual({ [came]: 'checked_in', [missed]: 'confirmed' });
+    await markNoShows(at(19));
+    expect(await statuses()).toEqual({ [came]: 'checked_in', [missed]: 'no_show' });
+    // The uncollected pay-at-venue charge leaves the payments queue.
+    const missedBooking = (await db.select().from(bookings).where(eq(bookings.userId, missed)))[0];
+    expect((await db.select().from(payments).where(eq(payments.bookingId, missedBooking.id)))[0].status).toBe('rejected');
+  });
+});
+
+describe('fair-use limits', () => {
+  it('a member can hold at most 3 upcoming bookings, at most 2 of them pay-at-venue, and 1 unverified UPI', async () => {
+    const [u] = await newUsers(1);
+    const ids = [await slot(200 - 186), await slot(201 - 186), await slot(202 - 186), await slot(203 - 186)];
+    const book = (slotId: number, method: 'venue' | 'upi') => bookSlot({ userId: u, slotId, seats: 1, method, idempotencyKey: k(), now });
+    await book(ids[0], 'venue');
+    await book(ids[1], 'venue');
+    await expect(book(ids[2], 'venue')).rejects.toThrow('TOO_MANY_VENUE_BOOKINGS');
+    await book(ids[2], 'upi');
+    await expect(book(ids[3], 'upi')).rejects.toThrow('TOO_MANY_BOOKINGS');
+    expect(MAX_ACTIVE_BOOKINGS).toBe(3);
+  });
+
+  it('a second unverified UPI booking waits until the first is verified', async () => {
+    const [u] = await newUsers(1);
+    const a = await slot(20.5 - 0), b = await slot(21.5);
+    await bookSlot({ userId: u, slotId: a, seats: 1, method: 'upi', idempotencyKey: k(), now });
+    await expect(bookSlot({ userId: u, slotId: b, seats: 1, method: 'upi', idempotencyKey: k(), now })).rejects.toThrow('UNPAID_BOOKING_WAITING');
+  });
+
+  it('the same request key from a different member is refused, not returned', async () => {
+    const id = await slot(34.5);
+    const [a, b] = await newUsers(2), key = k();
+    await bookSlot({ userId: a, slotId: id, seats: 1, method: 'venue', idempotencyKey: key, now });
+    await expect(bookSlot({ userId: b, slotId: id, seats: 1, method: 'venue', idempotencyKey: key, now })).rejects.toThrow('DUPLICATE_REQUEST');
+  });
+
+  it('staff cannot mark an online (gateway) payment as received by hand', async () => {
+    const id = await slot(36);
+    const [u] = await newUsers(1);
+    const bk = await bookSlot({ userId: u, slotId: id, seats: 1, method: 'gateway', idempotencyKey: k(), now });
+    const [p] = await db.insert(payments).values({ bookingId: bk.id, method: 'gateway', amount: bk.amount, status: 'pending' }).returning();
+    await expect(verifyPayment(admin, p.id, true)).rejects.toThrow('GATEWAY_PAYMENT_NOT_MANUAL');
   });
 });

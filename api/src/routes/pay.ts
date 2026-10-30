@@ -8,13 +8,21 @@ import { checkoutSignatureOk, publicKeyId, webhookSignatureOk } from '../razorpa
 
 const refParam = z.object({ ref: z.string().regex(/^FMH-[A-Z0-9]{6}$/) });
 
-/** Where the payment page may send the member afterwards: our app, or (in development) an allowed web origin. */
+const FALLBACK = 'findmyhobby://payment';
+/**
+ * Where the payment page may send the member afterwards: our app, or (in development) Expo or an allowed web origin.
+ * The URL is parsed and rebuilt, so nothing but scheme, host and path survives into the page.
+ */
 function safeReturn(url: unknown) {
-  if (typeof url !== 'string') return 'findmyhobby://payment';
-  const allowed = ['findmyhobby://', ...(process.env.NODE_ENV === 'production' ? [] : ['exp://']),
-    ...(process.env.ADMIN_ORIGIN ?? '').split(',').filter(Boolean).map((o) => o + '/')];
-  return allowed.some((a) => url.startsWith(a)) ? url : 'findmyhobby://payment';
+  if (typeof url !== 'string' || url.length > 300) return FALLBACK;
+  let u: URL;
+  try { u = new URL(url); } catch { return FALLBACK; }
+  const dev = process.env.NODE_ENV !== 'production';
+  const webOrigins = (process.env.ADMIN_ORIGIN ?? '').split(',').filter(Boolean);
+  const ok = u.protocol === 'findmyhobby:' || (dev && u.protocol === 'exp:') || webOrigins.includes(u.origin);
+  return ok ? `${u.protocol}//${u.host}${u.pathname}` : FALLBACK;
 }
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 const page = (reply: FastifyReply, nonce: string, body: string) => reply
   .header('content-type', 'text/html; charset=utf-8')
@@ -22,6 +30,7 @@ const page = (reply: FastifyReply, nonce: string, body: string) => reply
   .header('content-security-policy', [
     "default-src 'self'", `script-src 'nonce-${nonce}' https://checkout.razorpay.com`, 'frame-src https://*.razorpay.com',
     "connect-src 'self' https://*.razorpay.com", "img-src * data:", "style-src 'unsafe-inline' https://*.razorpay.com", "form-action 'self' https://*.razorpay.com",
+    "base-uri 'none'", "object-src 'none'", "frame-ancestors 'none'",
   ].join('; '))
   .send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pay · FindMyHobby</title><style>body{margin:0;font:16px system-ui,sans-serif;background:#F3F2F2;color:#201E1D;display:grid;place-items:center;min-height:100vh;padding:24px;box-sizing:border-box}
@@ -36,7 +45,7 @@ export async function payRoutes(app: FastifyInstance) {
     const row = await onlineOrderFor(ref);
     const nonce = randomBytes(16).toString('base64');
     const done = (title: string, text: string) => page(reply, nonce,
-      `<h1>${title}</h1><p>${text}</p><a href="${back}?ref=${ref}">Back to the app</a>`);
+      `<h1>${title}</h1><p>${text}</p><a href="${esc(`${back}?ref=${ref}`)}">Back to the app</a>`);
     if (!row?.orderId) return done('Payment not found', 'Please go back and book again.');
     const b = row.booking;
     if (b.status === 'confirmed' || b.status === 'checked_in') return done('Already paid ✓', 'Your slot is confirmed.');
@@ -45,8 +54,8 @@ export async function payRoutes(app: FastifyInstance) {
     // JSON is embedded with "<" escaped so nothing in it can break out of the script tag.
     const cfg = JSON.stringify({ key: publicKeyId(), order_id: row.orderId, amount: b.amount, currency: 'INR', name: 'FindMyHobby Club',
       description: `Booking ${ref}`, theme: { color: '#EC3013' }, ref, back,
-      // The member's own details, so checkout doesn't ask for them again.
-      prefill: { name: row.name, email: row.email.startsWith('deleted-') ? undefined : row.email, ...(row.phone && { contact: `+91${row.phone}` }) },
+      // Only the first name: anyone holding the link can open this page, so no email or phone is put in it.
+      prefill: { name: row.name.split(' ')[0] },
     }).replace(/</g, '\\u003c');
     return page(reply, nonce, `<h1>Opening secure payment…</h1><p>Pay with any UPI app, card or net banking.</p><button id="retry" hidden>Try again</button>
 <script src="https://checkout.razorpay.com/v1/checkout.js" nonce="${nonce}"></script>

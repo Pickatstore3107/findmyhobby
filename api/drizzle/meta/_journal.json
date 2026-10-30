@@ -15,6 +15,13 @@
       "when": 1792835618612,
       "tag": "0001_lock_public_api",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793342894217,
+      "tag": "0002_centre1",
+      "breakpoints": true
     }
   ]
 }

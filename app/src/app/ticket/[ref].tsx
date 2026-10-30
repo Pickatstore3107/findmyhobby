@@ -120,7 +120,7 @@ export default function Ticket() {
       <View style={{ backgroundColor: C.white, borderWidth: 2, borderColor: C.ink }}>
         <View style={{ height: 96, backgroundColor: C.illus, padding: 14, borderBottomWidth: 2, borderStyle: 'dashed', borderColor: C.ink, overflow: 'hidden' }}>
           <Text style={{ fontFamily: F.bold, fontSize: 22, color: C.ink, width: '65%' }}>{b.activity}</Text>
-          <T v="small" style={{ color: C.n800 }}>FindMyHobby Club · {b.zone}</T>
+          <T v="small" style={{ color: C.n800 }}>FindMyHobby Centre · {b.category}</T>
           <Image source={mascot(activity)} style={{ position: 'absolute', right: 0, bottom: 0, width: 80, height: 92 }} contentFit="cover" />
         </View>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>

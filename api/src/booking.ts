@@ -1,9 +1,9 @@
 // Booking engine. Seat counts change only through single atomic UPDATEs inside transactions,
 // so simultaneous requests can never oversell a slot.
 import { randomInt } from 'node:crypto';
-import { and, eq, gt, lt, lte, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, lt, lte, ne, sql } from 'drizzle-orm';
 import { db, type Tx } from './db/index.ts';
-import { activities, auditLog, bookings, payments, slots, zones } from './db/schema.ts';
+import { activities, auditLog, bookings, payments, points, slots, users } from './db/schema.ts';
 
 export class AppError extends Error {
   constructor(public code: string, public status = 400, public detail?: unknown) { super(code); }
@@ -14,6 +14,12 @@ export const HOLD_MS = 10 * MIN;        // time to pay by UPI before the seat is
 export const ONLINE_HOLD_MS = 15 * MIN; // online payment (Razorpay) gets a little longer
 export const CANCEL_CUTOFF_MS = 2 * HOUR;
 export const BOOKABLE_DAYS = 4;
+export const CHANGEOVER_MS = 30 * MIN;  // time to reset the space between two sessions
+export const ATTEND_POINTS = 10;        // points a member earns for each session attended
+// Fair-use limits on upcoming bookings per member, so nobody can hold seats they haven't paid for.
+export const MAX_ACTIVE_BOOKINGS = 3;
+export const MAX_VENUE_BOOKINGS = 2;   // pay at the desk: confirmed without money, so capped lower
+export const MAX_UNPAID_UPI = 1;       // UPI bookings still waiting for staff to verify the payment
 
 /** End of the bookable window: midnight IST after today + 3 more days. */
 export const windowEnd = (now: Date) =>
@@ -52,26 +58,63 @@ async function settleCancelled(t: Tx, bookingId: number) {
 
 // ── Admin: scheduling ────────────────────────────────────────────────────────
 
-type SlotInput = { activityId: number; zoneId: number; startsAt: Date; endsAt: Date; price: number; capacity: number; hostName?: string };
+type SlotInput = { activityId: number; startsAt: Date; endsAt: Date; price: number; capacity: number; hostId?: number | null };
+type Timing = { startsAt: Date; endsAt: Date; allowShortChangeover?: boolean };
 
 const toMinute = (d: Date) => new Date(Math.floor(+d / 60_000) * 60_000);
 
-export function createSlot(adminId: number, raw: SlotInput) {
-  // Slots start and end on whole minutes, so back-to-back slots line up exactly.
-  const input = { ...raw, startsAt: toMinute(raw.startsAt), endsAt: toMinute(raw.endsAt) };
+/**
+ * The centre runs one session at a time. Refuses any overlap, and (unless the admin accepts it)
+ * a gap shorter than the changeover time. Call inside a transaction that holds the schedule lock.
+ */
+async function checkFree(t: Tx, { startsAt, endsAt, allowShortChangeover }: Timing, exceptId?: number) {
+  const gap = allowShortChangeover ? 0 : CHANGEOVER_MS;
+  const [clash] = await t.select({ id: slots.id, activity: activities.name, startsAt: slots.startsAt, endsAt: slots.endsAt })
+    .from(slots).innerJoin(activities, eq(activities.id, slots.activityId)).where(and(
+      eq(slots.cancelled, false), exceptId ? ne(slots.id, exceptId) : undefined,
+      lt(slots.startsAt, new Date(+endsAt + gap)), gt(slots.endsAt, new Date(+startsAt - gap))));
+  if (!clash) return;
+  const overlaps = clash.startsAt < endsAt && clash.endsAt > startsAt;
+  // Tells the admin what is already there.
+  throw new AppError(overlaps ? 'SLOT_CLASH' : 'SHORT_CHANGEOVER', 409, clash);
+}
+
+/** Only one scheduling change at a time, so two admins can't create clashing sessions. Released at commit. */
+const lockSchedule = (t: Tx) => t.execute(sql`SELECT pg_advisory_xact_lock(hashtext('fmh.schedule'))`);
+
+export function createSlot(adminId: number, raw: SlotInput & { allowShortChangeover?: boolean }) {
+  // Sessions start and end on whole minutes, so back-to-back sessions line up exactly.
+  const { allowShortChangeover, ...input } = { ...raw, startsAt: toMinute(raw.startsAt), endsAt: toMinute(raw.endsAt) };
   if (input.endsAt <= input.startsAt) throw new AppError('INVALID_TIMES');
   return tx(async (t) => {
-    // Locking the zone row makes scheduling in the same zone one-at-a-time, so two admins can't create clashing slots.
-    const [zone] = await t.select({ id: zones.id }).from(zones).where(eq(zones.id, input.zoneId)).for('update');
-    if (!zone) throw new AppError('ZONE_NOT_FOUND', 404);
-    const [clash] = await t.select({ activity: activities.name, startsAt: slots.startsAt, endsAt: slots.endsAt })
-      .from(slots).innerJoin(activities, eq(activities.id, slots.activityId)).where(and(
-      eq(slots.zoneId, input.zoneId), eq(slots.cancelled, false),
-      lt(slots.startsAt, input.endsAt), gt(slots.endsAt, input.startsAt)));
-    if (clash) throw new AppError('ZONE_CLASH', 409, clash); // tells the admin what is already there
+    await lockSchedule(t);
+    await checkFree(t, { ...input, allowShortChangeover });
     const [res] = await t.insert(slots).values(input).returning({ id: slots.id });
     await audit(t, adminId, 'slot.create', 'slot', res.id, input);
     return res.id;
+  });
+}
+
+type SlotEdit = Partial<Timing & { price: number; capacity: number; hostId: number | null; closed: boolean }>;
+
+/** Edits a session. Price changes apply to new bookings only; times can move only while nobody has booked. */
+export function updateSlot(adminId: number, slotId: number, edit: SlotEdit) {
+  return tx(async (t) => {
+    await lockSchedule(t);
+    const [slot] = await t.select().from(slots).where(eq(slots.id, slotId)).for('update');
+    if (!slot || slot.cancelled) throw new AppError('SLOT_NOT_FOUND', 404);
+    const { allowShortChangeover, ...set } = edit;
+    if (set.startsAt) set.startsAt = toMinute(set.startsAt);
+    if (set.endsAt) set.endsAt = toMinute(set.endsAt);
+    const timing = { startsAt: set.startsAt ?? slot.startsAt, endsAt: set.endsAt ?? slot.endsAt, allowShortChangeover };
+    if (set.startsAt || set.endsAt) {
+      if (slot.bookedSeats > 0) throw new AppError('SLOT_HAS_BOOKINGS', 409);
+      if (timing.endsAt <= timing.startsAt) throw new AppError('INVALID_TIMES');
+      await checkFree(t, timing, slotId);
+    }
+    if (set.capacity !== undefined && set.capacity < slot.bookedSeats) throw new AppError('BELOW_BOOKED_SEATS', 409, { booked: slot.bookedSeats });
+    await t.update(slots).set(set).where(eq(slots.id, slotId));
+    await audit(t, adminId, 'slot.update', 'slot', slotId, set);
   });
 }
 
@@ -83,16 +126,25 @@ export async function bookSlot({ userId, slotId, seats, method, idempotencyKey, 
   if (!Number.isInteger(seats) || seats < 1 || seats > 3) throw new AppError('INVALID_SEATS');
   try {
     return await tx(async (t) => {
+      // Locking the member's row makes their bookings one-at-a-time, so the limits below can't be raced.
+      await t.select({ id: users.id }).from(users).where(eq(users.id, userId)).for('update');
+      const mine = await t.select({ method: bookings.method, status: bookings.status }).from(bookings)
+        .innerJoin(slots, eq(slots.id, bookings.slotId))
+        .where(and(eq(bookings.userId, userId), inArray(bookings.status, ['pending', 'confirmed']), gt(slots.endsAt, now)));
+      if (mine.length >= MAX_ACTIVE_BOOKINGS) throw new AppError('TOO_MANY_BOOKINGS', 409, { max: MAX_ACTIVE_BOOKINGS });
+      if (method === 'venue' && mine.filter((b) => b.method === 'venue').length >= MAX_VENUE_BOOKINGS) throw new AppError('TOO_MANY_VENUE_BOOKINGS', 409, { max: MAX_VENUE_BOOKINGS });
+      if (method === 'upi' && mine.filter((b) => b.method === 'upi' && b.status === 'pending').length >= MAX_UNPAID_UPI) throw new AppError('UNPAID_BOOKING_WAITING', 409);
       // The seat check and the seat grab are one statement: it succeeds only if the seats are still free.
       const taken = await t.update(slots)
         .set({ bookedSeats: sql`${slots.bookedSeats} + ${seats}` })
-        .where(and(eq(slots.id, slotId), eq(slots.cancelled, false),
+        .where(and(eq(slots.id, slotId), eq(slots.cancelled, false), eq(slots.closed, false),
           gt(slots.startsAt, now), lte(slots.startsAt, windowEnd(now)),
           sql`${slots.bookedSeats} + ${seats} <= ${slots.capacity}`))
         .returning({ id: slots.id });
       const [slot] = await t.select().from(slots).where(eq(slots.id, slotId));
       if (!taken.length) {
         if (!slot || slot.cancelled) throw new AppError('SLOT_NOT_FOUND', 404);
+        if (slot.closed) throw new AppError('SLOT_CLOSED', 409);
         if (slot.startsAt <= now || slot.startsAt > windowEnd(now)) throw new AppError('SLOT_NOT_BOOKABLE', 409);
         throw new AppError('NOT_ENOUGH_SEATS', 409);
       }
@@ -111,6 +163,7 @@ export async function bookSlot({ userId, slotId, seats, method, idempotencyKey, 
     if (isDup(e, 'idempotency_key')) { // the same request arrived twice: return the first result
       const [prev] = await db.select().from(bookings).where(eq(bookings.idempotencyKey, idempotencyKey));
       if (prev?.userId === userId) return prev;
+      throw new AppError('DUPLICATE_REQUEST', 409);
     }
     throw e;
   }
@@ -139,13 +192,15 @@ export function verifyPayment(adminId: number, paymentId: number, approve: boole
   return tx(async (t) => {
     const [p] = await t.select().from(payments).where(eq(payments.id, paymentId)).for('update');
     if (!p || p.status !== 'pending') throw new AppError('PAYMENT_NOT_PENDING', 409);
+    // Online payments are settled only by the gateway's signed confirmation, never by hand. Refunds (negative) can be marked sent.
+    if (p.method === 'gateway' && p.amount > 0) throw new AppError('GATEWAY_PAYMENT_NOT_MANUAL', 409);
     await t.update(payments).set({ status: approve ? 'verified' : 'rejected', verifiedBy: adminId, verifiedAt: now }).where(eq(payments.id, p.id));
     const [b] = p.bookingId ? await t.select().from(bookings).where(eq(bookings.id, p.bookingId)).for('update') : [];
     if (b?.status === 'pending') {
       await t.update(bookings).set({ status: approve ? 'confirmed' : 'cancelled' }).where(eq(bookings.id, b.id));
       if (!approve) await releaseSeats(t, b.slotId, b.seats);
     }
-    await audit(t, adminId, approve ? 'payment.verify' : 'payment.reject', 'payment', p.id);
+    await audit(t, adminId, approve ? 'payment.verify' : 'payment.reject', 'payment', p.id, { amount: p.amount, method: p.method, utr: p.utr, bookingId: p.bookingId });
   });
 }
 
@@ -162,7 +217,7 @@ export function cancelBooking(userId: number, ref: string, now = new Date()) {
   });
 }
 
-/** Desk scans the booking QR. Opens 15 minutes before the slot, works once. Pay-at-venue is marked paid here. */
+/** Desk scans the booking QR. Opens 15 minutes before the slot, works once. Pay-at-venue is marked paid here, and attendance earns points. */
 export function checkIn(staffId: number, ref: string, now = new Date()) {
   return tx(async (t) => {
     const [b] = await t.select().from(bookings).where(eq(bookings.ref, ref)).for('update');
@@ -174,6 +229,7 @@ export function checkIn(staffId: number, ref: string, now = new Date()) {
     await t.update(bookings).set({ status: 'checked_in' }).where(eq(bookings.id, b.id));
     await t.update(payments).set({ status: 'verified', verifiedBy: staffId, verifiedAt: now })
       .where(and(eq(payments.bookingId, b.id), eq(payments.method, 'venue'), eq(payments.status, 'pending')));
+    await t.insert(points).values({ userId: b.userId, points: ATTEND_POINTS, reason: 'attended', bookingId: b.id }).onConflictDoNothing();
     await audit(t, staffId, 'booking.checkin', 'booking', b.id);
     return { ...b, status: 'checked_in' as const, slot };
   });
@@ -210,4 +266,18 @@ export async function expireHolds(now = new Date()) {
     });
   }
   return due.length;
+}
+
+/** Confirmed bookings nobody checked in for become no-shows once the session has ended. Runs every minute. */
+export function markNoShows(now = new Date()) {
+  return tx(async (t) => {
+    const missed = await t.update(bookings).set({ status: 'no_show' })
+      .where(and(eq(bookings.status, 'confirmed'),
+        inArray(bookings.slotId, t.select({ id: slots.id }).from(slots).where(lte(slots.endsAt, now)))))
+      .returning({ id: bookings.id });
+    // Pay-at-venue money was never collected, so it no longer waits in the payments queue.
+    if (missed.length) await t.update(payments).set({ status: 'rejected' }).where(and(
+      inArray(payments.bookingId, missed.map((b) => b.id)), eq(payments.method, 'venue'), eq(payments.status, 'pending')));
+    return missed.length;
+  });
 }

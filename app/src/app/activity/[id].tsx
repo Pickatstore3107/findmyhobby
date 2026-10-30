@@ -64,7 +64,7 @@ export default function ActivityScreen() {
         <View style={{ backgroundColor: C.illus, minHeight: 280, paddingTop: insets.top + 64, paddingHorizontal: GUTTER, paddingBottom: 20, overflow: 'hidden' }}>
           <T v="kicker" style={{ color: C.accent800 }}>{category ? `${category.emoji} ${category.name}` : ' '}</T>
           <Text style={{ fontFamily: F.bold, fontSize: 42, lineHeight: 42, letterSpacing: -1.4, color: C.ink, marginTop: 6, width: '62%' }}>{activity?.name ?? ''}</Text>
-          <T style={{ color: C.n800, marginTop: 8, width: '60%' }}>FindMyHobby Club{slot ? ` · ${slot.zone}` : ''}</T>
+          <T style={{ color: C.n800, marginTop: 8, width: '60%' }}>FindMyHobby Centre{slot ? ` · ${slot.category}` : ''}</T>
           {activity && <Image source={mascot(activity)} style={{ position: 'absolute', right: -10, bottom: 0, width: 170, height: 204 }} contentFit="cover" />}
         </View>
 
